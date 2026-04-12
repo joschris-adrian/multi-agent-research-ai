@@ -3,6 +3,8 @@ from src.agents.researcher import ResearchAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.writer import WriterAgent
 from src.agents.critic import CriticAgent
+from src.agents.graph_builder import GraphBuilderAgent
+from src.graph.knowledge_graph import KnowledgeGraph
 
 
 class MultiAgentResearchSystem:
@@ -12,6 +14,8 @@ class MultiAgentResearchSystem:
         self.analyst = AnalystAgent()
         self.writer = WriterAgent()
         self.critic = CriticAgent()
+        self.graph_builder = GraphBuilderAgent()
+        self.kg = KnowledgeGraph()
 
     def run(self, question):
         print(f"\n[question] {question}")
@@ -29,6 +33,29 @@ class MultiAgentResearchSystem:
         insights = self.analyst.analyze(documents, question)
         print(insights)
 
+        print("\n[graph builder]")
+        self.kg.add_topic(question)
+        entities = self.graph_builder.extract_entities(insights, question)
+
+        for company in entities.get("companies", []):
+            self.kg.add_entity(company, "Company")
+            self.kg.link_entity_to_topic(company, question)
+
+        for trend in entities.get("trends", []):
+            self.kg.add_entity(trend, "Trend")
+            self.kg.link_entity_to_topic(trend, question)
+
+        for tech in entities.get("technologies", []):
+            self.kg.add_entity(tech, "Technology")
+            self.kg.link_entity_to_topic(tech, question)
+
+        for rel in entities.get("relationships", []):
+            self.kg.link_entities(rel["source"], rel["target"], rel["relation"])
+
+        print(f"stored {len(entities.get('companies', []))} companies, "
+              f"{len(entities.get('trends', []))} trends, "
+              f"{len(entities.get('technologies', []))} technologies")
+
         print("\n[writer]")
         report = self.writer.write_report(insights)
         print(report)
@@ -42,6 +69,7 @@ class MultiAgentResearchSystem:
             "tasks": tasks,
             "documents": documents,
             "insights": insights,
+            "entities": entities,
             "report": report,
             "critic_feedback": feedback,
         }
