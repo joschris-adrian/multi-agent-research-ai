@@ -10,6 +10,12 @@ FAKE_RESULT = {
     "tasks": "1. Search\n2. Analyse",
     "documents": [{"title": "AI", "content": "AI is growing.", "source": "http://example.com"}],
     "insights": "AI is expanding across all sectors.",
+    "entities": {
+        "companies": ["Google", "OpenAI"],
+        "trends": ["LLM adoption"],
+        "technologies": ["Transformers"],
+        "relationships": []
+    },
     "report": "# AI Trends\n## Introduction\nAI is transforming industries.",
     "critic_feedback": "Clear and well structured."
 }
@@ -30,7 +36,7 @@ def test_research_returns_200(mock_run):
 def test_research_response_has_expected_keys(mock_run):
     mock_run.return_value = FAKE_RESULT
     data = client.post("/research", json={"query": "AI trends"}).json()
-    for key in ["question", "report", "tasks", "insights", "critic_feedback"]:
+    for key in ["question", "report", "tasks", "insights", "entities", "critic_feedback"]:
         assert key in data
 
 
