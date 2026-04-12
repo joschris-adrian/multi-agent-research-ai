@@ -1,6 +1,6 @@
 # Multi-Agent Research Assistant
 
-I built this to explore how multiple LLM agents can collaborate on a research task — each one handling a specific job rather than dumping everything into a single prompt.
+I built this to explore how multiple LLM agents can collaborate on a research task - each one handling a specific job rather than dumping everything into a single prompt.
 
 The system runs fully locally using Ollama, so no API keys or costs involved.
 
@@ -13,10 +13,11 @@ When you ask a question, five agents run in sequence:
 1. **Planner** breaks the question into concrete research tasks
 2. **Researcher** searches the web via DuckDuckGo and stores results in ChromaDB
 3. **Analyst** pulls from both current results and past memory to extract insights
-4. **Writer** turns those insights into a structured report
-5. **Critic** reviews the report and flags anything missing or unclear
+4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j
+5. **Writer** turns those insights into a structured report
+6. **Critic** reviews the report and flags anything missing or unclear
 
-The vector memory means the system gets slightly smarter over repeated queries on similar topics — it can pull in relevant context from previous searches.
+The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities - e.g. which companies are linked to a given trend - via GraphQL.
 
 If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 times with a short delay before giving up and returning an empty result set rather than crashing the pipeline.
 
@@ -24,11 +25,16 @@ If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 tim
 
 ## Stack
 
-- **LLM:** Ollama (llama3.2) - runs locally, no API needed
-- **Web search:** DuckDuckGo via `ddgs`
-- **Vector memory:** ChromaDB
-- **API:** FastAPI
-- **UI:** Streamlit
+| Component       | Technology                      |
+|-----------------|---------------------------------|
+| LLM             | Ollama (llama3.2)               |
+| Agent pipeline  | Custom multi-agent architecture |
+| Web search      | DuckDuckGo via `ddgs`           |
+| Vector memory   | ChromaDB                        |
+| Knowledge graph | Neo4j                           |
+| GraphQL API     | Strawberry                      |
+| Backend         | FastAPI                         |
+| Frontend        | Streamlit                       |
 
 ---
 
@@ -45,29 +51,35 @@ multi-agent-research-ai/
 │
 ├── src/
 │   ├── agents/
-│   │   ├── base_agent.py     # Ollama API call + system prompt
+│   │   ├── base_agent.py       # Ollama API call + system prompt
 │   │   ├── planner.py
-│   │   ├── researcher.py     # DuckDuckGo search with retry + ChromaDB write
-│   │   ├── analyst.py        # ChromaDB read + insight extraction
+│   │   ├── researcher.py       # DuckDuckGo search with retry + ChromaDB write
+│   │   ├── analyst.py          # ChromaDB read + insight extraction
+│   │   ├── graph_builder.py    # Extracts entities for Neo4j
 │   │   ├── writer.py
 │   │   └── critic.py
 │   ├── memory/
-│   │   └── vector_store.py   # ChromaDB wrapper
+│   │   └── vector_store.py     # ChromaDB wrapper
+│   ├── graph/
+│   │   └── knowledge_graph.py  # Neo4j wrapper
+│   ├── graphql/
+│   │   └── graphql_schema.py   # Strawberry GraphQL schema
 │   ├── evaluation/
-│   │   ├── evaluate.py       # Runs multi-agent vs single-agent comparison
-│   │   ├── evaluator.py      # LLM-as-judge scoring
-│   │   └── baseline.py       # Single prompt baseline
+│   │   ├── evaluate.py         # Runs multi-agent vs single-agent comparison
+│   │   ├── evaluator.py        # LLM-as-judge scoring
+│   │   └── baseline.py         # Single prompt baseline
 │   └── workflow/
-│       └── agent_pipeline.py # Wires all agents together
+│       └── agent_pipeline.py   # Wires all agents together
 │
 ├── api/
-│   └── main.py               # FastAPI wrapper around the pipeline
+│   └── main.py                 # FastAPI + GraphQL router
 ├── ui/
-│   └── streamlit_app.py      # Calls the API, renders results
+│   └── streamlit_app.py        # Calls the API, renders results
 └── tests/
     ├── test_agents.py
     ├── test_api.py
     ├── test_pipeline.py
+    ├── test_knowledge_graph.py
     └── test_docker.py
 ```
 
@@ -88,12 +100,12 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-**Option 1 — CLI:**
+**Option 1 - CLI:**
 ```bash
 python main.py
 ```
 
-**Option 2 — API + UI (two terminals):**
+**Option 2 - API + UI (two terminals):**
 ```bash
 # terminal 1
 uvicorn api.main:app --reload
@@ -104,13 +116,25 @@ streamlit run ui/streamlit_app.py
 
 UI runs at `http://localhost:8501`, API docs at `http://127.0.0.1:8000/docs`.
 
-**Option 3 — Docker:**
+GraphQL playground at `http://127.0.0.1:8000/graphql` - example query:
+```graphql
+{
+  entitiesForTopic(topic: "What are the latest trends in renewable energy?") {
+    name
+    kind
+  }
+}
+```
+
+**Option 3 — Docker (runs everything including Neo4j):**
 ```bash
 docker-compose up --build
 
-# first time only — pull the model into the container
+# first time only - pull the model into the container
 bash setup.sh
 ```
+
+Neo4j browser at `http://localhost:7474`.
 
 ---
 
@@ -120,7 +144,7 @@ bash setup.sh
 pytest tests/ -v
 ```
 
-Tests use mocks so Ollama doesn't need to be running.
+Tests use mocks so Ollama and Neo4j don't need to be running.
 
 ---
 
@@ -135,15 +159,16 @@ I ran the multi-agent pipeline against a single-agent baseline (same model, one 
 | Clarity      | 9/10        | 9/10         |
 | Accuracy     | 8/10        | 8.5/10       |
 
-The multi-agent output was better structured and more complete. The single-agent scored slightly higher on accuracy — likely because it cited sources inline rather than summarising them. Overall the scores are close, which is expected given both use the same underlying model. The main benefit of the pipeline is the structured, readable output format.
+The multi-agent output was better structured and more complete. The single-agent scored slightly higher on accuracy — likely because it cited sources inline rather than summarising them. Overall the scores are close, which is expected given both use the same underlying model. The main benefit of the pipeline is the structured, readable output format and the queryable knowledge graph it produces as a side effect.
 
 ---
 
 ## Known limitations
 
-- `llama3.2` is a 3B model — outputs can be vague or repetitive on complex topics. Swapping to `mistral` or `llama3.1:8b` gives noticeably better results.
+- `llama3.2` is a 3B model - outputs can be vague or repetitive on complex topics. Swapping to `mistral` or `llama3.1:8b` gives noticeably better results.
 - ChromaDB runs in-memory by default, so vector memory resets on each restart. Switching to a persistent client fixes this.
-- DuckDuckGo occasionally rate-limits — the researcher retries up to 3 times but will return an empty result if all attempts fail.
+- DuckDuckGo occasionally rate-limits - the researcher retries up to 3 times but will return an empty result if all attempts fail.
+- The graph builder relies on the LLM returning valid JSON - if the model produces malformed output, it falls back to an empty entity set rather than crashing.
 
 ---
 
@@ -153,6 +178,7 @@ The multi-agent output was better structured and more complete. The single-agent
 - Persistent ChromaDB storage across sessions
 - Streaming responses so you can watch the agents work in real time
 - API authentication for deployment
+- Visualise the knowledge graph in the Streamlit UI
 
 ---
 
