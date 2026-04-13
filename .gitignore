@@ -1,6 +1,9 @@
 __pycache__/
 *.pyc
+*.pyo
 .pytest_cache/
 .env
 chroma/
+models/lora-adapter/
 *.zip
+.DS_Store

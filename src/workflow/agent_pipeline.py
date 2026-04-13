@@ -34,27 +34,32 @@ class MultiAgentResearchSystem:
         print(insights)
 
         print("\n[graph builder]")
-        self.kg.add_topic(question)
-        entities = self.graph_builder.extract_entities(insights, question)
+        try:
+            self.kg.add_topic(question)
+            entities = self.graph_builder.extract_entities(insights, question)
 
-        for company in entities.get("companies", []):
-            self.kg.add_entity(company, "Company")
-            self.kg.link_entity_to_topic(company, question)
+            for company in entities.get("companies", []):
+                self.kg.add_entity(company, "Company")
+                self.kg.link_entity_to_topic(company, question)
 
-        for trend in entities.get("trends", []):
-            self.kg.add_entity(trend, "Trend")
-            self.kg.link_entity_to_topic(trend, question)
+            for trend in entities.get("trends", []):
+                self.kg.add_entity(trend, "Trend")
+                self.kg.link_entity_to_topic(trend, question)
 
-        for tech in entities.get("technologies", []):
-            self.kg.add_entity(tech, "Technology")
-            self.kg.link_entity_to_topic(tech, question)
+            for tech in entities.get("technologies", []):
+                self.kg.add_entity(tech, "Technology")
+                self.kg.link_entity_to_topic(tech, question)
 
-        for rel in entities.get("relationships", []):
-            self.kg.link_entities(rel["source"], rel["target"], rel["relation"])
+            for rel in entities.get("relationships", []):
+                self.kg.link_entities(rel["source"], rel["target"], rel["relation"])
 
-        print(f"stored {len(entities.get('companies', []))} companies, "
-              f"{len(entities.get('trends', []))} trends, "
-              f"{len(entities.get('technologies', []))} technologies")
+            print(f"stored {len(entities.get('companies', []))} companies, "
+                  f"{len(entities.get('trends', []))} trends, "
+                f"{len(entities.get('technologies', []))} technologies")
+
+        except Exception as e:
+            print(f"[graph builder] neo4j unavailable, skipping: {e}")
+            entities = {"companies": [], "trends": [], "technologies": [], "relationships": []}
 
         print("\n[writer]")
         report = self.writer.write_report(insights)

@@ -6,10 +6,19 @@ NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 
 class KnowledgeGraph:
     def __init__(self):
-        self.driver = GraphDatabase.driver(NEO4J_URI, auth=None)
+        # don't connect on init — connect lazily when first used
+        self._driver = None
+
+    @property
+    def driver(self):
+        if self._driver is None:
+            self._driver = GraphDatabase.driver(NEO4J_URI, auth=None)
+        return self._driver
 
     def close(self):
-        self.driver.close()
+        if self._driver is not None:
+            self._driver.close()
+            self._driver = None
 
     def clear(self):
         with self.driver.session() as session:
@@ -23,7 +32,6 @@ class KnowledgeGraph:
             )
 
     def add_entity(self, name: str, kind: str):
-        """kind is one of: Company, Trend, Technology"""
         with self.driver.session() as session:
             session.run(
                 "MERGE (e:Entity {name: $name, kind: $kind})",

@@ -1,15 +1,17 @@
-from src.workflow.crew_pipeline import run_multi_agent_system
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+from src.workflow.agent_pipeline import MultiAgentResearchSystem
 
 def main():
-
     question = input("Enter a research question: ")
-
-    result = run_multi_agent_system(question)
-
-    print("\n\n===== FINAL RESULT =====\n")
-    print(result)
-
+    system = MultiAgentResearchSystem()
+    result = system.run(question)
+    print("\n===== FINAL REPORT =====\n")
+    print(result["report"])
+    print("\n===== CRITIC FEEDBACK =====\n")
+    print(result["critic_feedback"])
 
 if __name__ == "__main__":
     main()

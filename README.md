@@ -8,7 +8,7 @@ The system runs fully locally using Ollama, so no API keys or costs involved.
 
 ## How it works
 
-When you ask a question, five agents run in sequence:
+When you ask a question, six agents run in sequence:
 
 1. **Planner** breaks the question into concrete research tasks
 2. **Researcher** searches the web via DuckDuckGo and stores results in ChromaDB
@@ -17,7 +17,7 @@ When you ask a question, five agents run in sequence:
 5. **Writer** turns those insights into a structured report
 6. **Critic** reviews the report and flags anything missing or unclear
 
-The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities - e.g. which companies are linked to a given trend - via GraphQL.
+The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities via GraphQL.
 
 If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 times with a short delay before giving up and returning an empty result set rather than crashing the pipeline.
 
@@ -35,6 +35,7 @@ If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 tim
 | GraphQL API     | Strawberry                      |
 | Backend         | FastAPI                         |
 | Frontend        | Streamlit                       |
+| Fine-tuning     | PEFT (LoRA) via Hugging Face    |
 
 ---
 
@@ -43,6 +44,7 @@ If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 tim
 ```
 multi-agent-research-ai/
 ├── main.py
+├── run_all.py
 ├── conftest.py
 ├── requirements.txt
 ├── docker-compose.yml
@@ -56,20 +58,31 @@ multi-agent-research-ai/
 │   │   ├── researcher.py       # DuckDuckGo search with retry + ChromaDB write
 │   │   ├── analyst.py          # ChromaDB read + insight extraction
 │   │   ├── graph_builder.py    # Extracts entities for Neo4j
-│   │   ├── writer.py
+│   │   ├── writer.py           # Ollama or fine-tuned LoRA model
 │   │   └── critic.py
 │   ├── memory/
 │   │   └── vector_store.py     # ChromaDB wrapper
+│   ├── models/
+│   │   └── peft_model.py       # LoRA adapter loader
 │   ├── graph/
 │   │   └── knowledge_graph.py  # Neo4j wrapper
 │   ├── graphql/
 │   │   └── graphql_schema.py   # Strawberry GraphQL schema
 │   ├── evaluation/
-│   │   ├── evaluate.py         # Runs multi-agent vs single-agent comparison
+│   │   ├── evaluate.py         # Multi-agent vs single-agent comparison
 │   │   ├── evaluator.py        # LLM-as-judge scoring
 │   │   └── baseline.py         # Single prompt baseline
 │   └── workflow/
 │       └── agent_pipeline.py   # Wires all agents together
+│
+├── training/
+│   ├── generate_training_data.py  # Auto-generates examples using your agents
+│   ├── dataset.json               # Training examples
+│   ├── finetune.py                # LoRA fine-tuning script
+│   └── evaluate_finetuning.py     # Before vs after comparison
+│
+├── models/
+│   └── lora-adapter/           # Saved after running finetune.py
 │
 ├── api/
 │   └── main.py                 # FastAPI + GraphQL router
@@ -80,6 +93,7 @@ multi-agent-research-ai/
     ├── test_api.py
     ├── test_pipeline.py
     ├── test_knowledge_graph.py
+    ├── test_finetuning.py
     └── test_docker.py
 ```
 
@@ -114,27 +128,36 @@ uvicorn api.main:app --reload
 streamlit run ui/streamlit_app.py
 ```
 
-UI runs at `http://localhost:8501`, API docs at `http://127.0.0.1:8000/docs`.
+UI at `http://localhost:8501`, API docs at `http://127.0.0.1:8000/docs`, GraphQL at `http://127.0.0.1:8000/graphql`.
 
-GraphQL playground at `http://127.0.0.1:8000/graphql` - example query:
-```graphql
-{
-  entitiesForTopic(topic: "What are the latest trends in renewable energy?") {
-    name
-    kind
-  }
-}
-```
-
-**Option 3 — Docker (runs everything including Neo4j):**
+**Option 3 - Docker (includes Neo4j):**
 ```bash
 docker-compose up --build
-
-# first time only - pull the model into the container
-bash setup.sh
+bash setup.sh  # first time only
 ```
 
-Neo4j browser at `http://localhost:7474`.
+---
+
+## Fine-tuning (PEFT + LoRA)
+
+The writer agent can be swapped between the default Ollama model and a locally fine-tuned LoRA adapter.
+
+```bash
+# step 1 - generate training data using your own agents (ollama must be running)
+python training/generate_training_data.py
+
+# step 2 - fine-tune (opt-125m, runs on CPU in ~2 min)
+python training/finetune.py
+
+# step 3 - run with fine-tuned writer
+set USE_FINETUNED=1 && python main.py   # Windows
+USE_FINETUNED=1 python main.py          # Linux/Mac
+
+# step 4 - evaluate before vs after
+python training/evaluate_finetuning.py
+```
+
+The writer falls back to Ollama automatically if the adapter hasn't been trained or if `USE_FINETUNED` is not set.
 
 ---
 
@@ -146,11 +169,32 @@ pytest tests/ -v
 
 Tests use mocks so Ollama and Neo4j don't need to be running.
 
+To verify all components end to end (requires Ollama and uvicorn running):
+
+```bash
+# terminal 1
+ollama serve
+
+# terminal 2
+uvicorn api.main:app --reload
+
+# terminal 3
+python run_all.py
+```
+
+Neo4j checks are skipped automatically if Docker isn't running. To include them:
+
+```bash
+docker start neo4j
+```
+
 ---
 
 ## Evaluation
 
-I ran the multi-agent pipeline against a single-agent baseline (same model, one prompt) on the query *"What are the latest trends in renewable energy?"* and scored both using an LLM judge.
+### Multi-agent vs single-agent
+
+I ran the pipeline against a single-agent baseline on the query *"What are the latest trends in renewable energy?"* and scored both using an LLM judge.
 
 | Criteria     | Multi-agent | Single-agent |
 |--------------|-------------|--------------|
@@ -159,26 +203,42 @@ I ran the multi-agent pipeline against a single-agent baseline (same model, one 
 | Clarity      | 9/10        | 9/10         |
 | Accuracy     | 8/10        | 8.5/10       |
 
-The multi-agent output was better structured and more complete. The single-agent scored slightly higher on accuracy — likely because it cited sources inline rather than summarising them. Overall the scores are close, which is expected given both use the same underlying model. The main benefit of the pipeline is the structured, readable output format and the queryable knowledge graph it produces as a side effect.
+The multi-agent output was better structured and more complete. The single-agent scored slightly higher on accuracy due to citing sources inline.
+
+### Fine-tuning evaluation
+
+I evaluated the LoRA fine-tuned writer (opt-125m, 125M params, 10 examples) against the Ollama baseline (llama3.2, 3B params).
+
+| Criteria     | Ollama (llama3.2) | LoRA (opt-125m) |
+|--------------|-------------------|-----------------|
+| Relevance    | 9/10              | 4/10            |
+| Completeness | 8/10              | 6/10            |
+| Clarity      | 9/10              | 7/10            |
+| Accuracy     | 8/10              | 5/10            |
+
+The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2 and was trained on only 10 examples. The purpose of this component is to demonstrate the end-to-end fine-tuning workflow - data generation, LoRA training, adapter loading, and quantitative evaluation - rather than to beat a much larger model. A fair comparison would require fine-tuning a model of comparable size with significantly more training data.
 
 ---
 
 ## Known limitations
 
-- `llama3.2` is a 3B model - outputs can be vague or repetitive on complex topics. Swapping to `mistral` or `llama3.1:8b` gives noticeably better results.
-- ChromaDB runs in-memory by default, so vector memory resets on each restart. Switching to a persistent client fixes this.
-- DuckDuckGo occasionally rate-limits - the researcher retries up to 3 times but will return an empty result if all attempts fail.
-- The graph builder relies on the LLM returning valid JSON - if the model produces malformed output, it falls back to an empty entity set rather than crashing.
+- `llama3.2` is a 3B model - outputs can be vague on complex topics. `mistral` or `llama3.1:8b` give better results.
+- ChromaDB runs in-memory by default, so vector memory resets on each restart.
+- DuckDuckGo occasionally rate-limits - the researcher retries 3 times before returning empty.
+- The graph builder relies on the LLM returning valid JSON - falls back to empty entity set if parsing fails.
+- Neo4j must be running separately (via Docker) for the knowledge graph to work. The pipeline skips it gracefully if unavailable.
+- The LoRA fine-tuned writer uses opt-125m which is too small for high-quality report generation without significantly more training data.
 
 ---
 
 ## Possible next steps
 
+- Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement
 - Add source citations directly in the final report
 - Persistent ChromaDB storage across sessions
-- Streaming responses so you can watch the agents work in real time
-- API authentication for deployment
+- Streaming responses via WebSockets
 - Visualise the knowledge graph in the Streamlit UI
+- API authentication for deployment
 
 ---
 
