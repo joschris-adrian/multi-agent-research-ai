@@ -13,8 +13,8 @@ When you ask a question, six agents run in sequence:
 1. **Planner** breaks the question into concrete research tasks
 2. **Researcher** searches the web via DuckDuckGo and stores results in ChromaDB
 3. **Analyst** pulls from both current results and past memory to extract insights
-4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j
-5. **Writer** turns those insights into a structured report
+4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j - runs at low temperature for consistent JSON output
+5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
 6. **Critic** reviews the report and flags anything missing or unclear
 
 The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities via GraphQL.

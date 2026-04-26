@@ -8,13 +8,14 @@ class WriterAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             role="Technical Writer",
-            goal="Write a well-structured research report"
+            goal="Write a well-structured research report",
+            temperature=0.8,  # slightly higher for more varied prose
+            max_tokens=800,
         )
         self._finetuned = None
 
         if USE_FINETUNED:
             try:
-                # import here so torch is only loaded when actually needed
                 from src.models.peft_model import FineTunedWriter
                 self._finetuned = FineTunedWriter()
                 print("[writer] using fine-tuned LoRA model")
