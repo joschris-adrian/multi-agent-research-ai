@@ -14,6 +14,14 @@ def make_mock(text="some response"):
     return MagicMock(json=lambda: {"response": text})
 
 
+FAKE_ENTITIES = {
+    "companies": ["Tesla", "SolarEdge"],
+    "trends": ["Solar growth"],
+    "technologies": ["Battery storage"],
+    "relationships": []
+}
+
+
 # ── BaseAgent defaults ────────────────────────────────────────────────────────
 
 def test_base_agent_default_temperature():
@@ -66,42 +74,76 @@ def test_base_agent_stream_is_false(mock_post):
     mock_post.return_value = make_mock("ok")
     agent = BaseAgent(role="Tester", goal="Test")
     agent.run("test")
-
     assert mock_post.call_args[1]["json"]["stream"] is False
 
 
 # ── Per-agent temperature settings ───────────────────────────────────────────
 
 def test_graph_builder_uses_low_temperature():
-    agent = GraphBuilderAgent()
-    assert agent.temperature == 0.1
+    assert GraphBuilderAgent().temperature == 0.1
 
 
 def test_writer_uses_higher_temperature():
-    agent = WriterAgent()
-    assert agent.temperature == 0.8
+    assert WriterAgent().temperature == 0.8
 
 
 def test_writer_has_larger_token_limit():
-    agent = WriterAgent()
-    assert agent.max_tokens == 800
+    assert WriterAgent().max_tokens == 800
+
+
+# ── Writer uses entities ──────────────────────────────────────────────────────
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_includes_entities_in_prompt(mock_post):
+    mock_post.return_value = make_mock("# Report\nTesla leads solar.")
+    writer = WriterAgent()
+    writer.write_report("Solar is growing.", FAKE_ENTITIES)
+
+    prompt_sent = mock_post.call_args[1]["json"]["prompt"]
+    assert "Tesla" in prompt_sent
+    assert "SolarEdge" in prompt_sent
+    assert "Solar growth" in prompt_sent
+    assert "Battery storage" in prompt_sent
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_handles_empty_entities(mock_post):
+    mock_post.return_value = make_mock("# Report\nSolar is growing.")
+    writer = WriterAgent()
+    result = writer.write_report("Solar is growing.", {})
+    assert isinstance(result, str) and len(result) > 0
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_handles_no_entities_arg(mock_post):
+    mock_post.return_value = make_mock("# Report\nSolar is growing.")
+    writer = WriterAgent()
+    result = writer.write_report("Solar is growing.")
+    assert isinstance(result, str) and len(result) > 0
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_falls_back_gracefully_when_entities_missing(mock_post):
+    mock_post.return_value = make_mock("# Report")
+    writer = WriterAgent()
+    prompt_sent_before = None
+
+    def capture(*args, **kwargs):
+        nonlocal prompt_sent_before
+        prompt_sent_before = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    writer.write_report("insights", {"companies": [], "trends": [], "technologies": []})
+    assert "not identified" in prompt_sent_before
 
 
 # ── Planner ───────────────────────────────────────────────────────────────────
 
 @patch("src.agents.base_agent.requests.post")
 def test_planner_returns_string(mock_post):
-    mock_post.return_value = make_mock("1. Search trends\n2. Analyse data\n3. Write report")
+    mock_post.return_value = make_mock("1. Search trends\n2. Analyse data")
     result = PlannerAgent().plan("What are AI trends?")
-    assert isinstance(result, str) and len(result) > 0
-
-
-# ── Writer ────────────────────────────────────────────────────────────────────
-
-@patch("src.agents.base_agent.requests.post")
-def test_writer_returns_string(mock_post):
-    mock_post.return_value = make_mock("# Report\nAI is growing.")
-    result = WriterAgent().write_report("AI is growing rapidly")
     assert isinstance(result, str) and len(result) > 0
 
 
@@ -109,7 +151,7 @@ def test_writer_returns_string(mock_post):
 
 @patch("src.agents.base_agent.requests.post")
 def test_critic_returns_string(mock_post):
-    mock_post.return_value = make_mock("Looks good, could add more sources.")
+    mock_post.return_value = make_mock("Looks good.")
     result = CriticAgent().review("Sample report")
     assert isinstance(result, str) and len(result) > 0
 
@@ -129,7 +171,7 @@ def test_analyst_returns_string(mock_post):
 @patch("src.agents.base_agent.requests.post")
 def test_researcher_extract_query(mock_post):
     mock_post.return_value = make_mock("latest renewable energy trends 2025")
-    result = ResearchAgent().extract_query("1. Find trends\n2. Analyse", "energy trends?")
+    result = ResearchAgent().extract_query("1. Find trends", "energy trends?")
     assert isinstance(result, str) and len(result) > 0
 
 

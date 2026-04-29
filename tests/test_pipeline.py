@@ -16,7 +16,7 @@ def make_mock_kg():
 
 
 FAKE_ENTITIES = {
-    "companies": ["Tesla"],
+    "companies": ["Tesla", "SolarEdge"],
     "trends": ["Solar growth"],
     "technologies": ["Battery storage"],
     "relationships": [{"source": "Tesla", "target": "Battery storage", "relation": "USES"}]
@@ -75,6 +75,36 @@ def test_pipeline_short_question(mock_kg_class, mock_post):
 
 @patch("src.agents.base_agent.requests.post")
 @patch("src.workflow.agent_pipeline.KnowledgeGraph")
+def test_writer_receives_entities_from_pipeline(mock_kg_class, mock_post):
+    mock_kg_class.return_value = make_mock_kg()
+    mock_post.return_value = mock_response()
+    system = MultiAgentResearchSystem()
+
+    with patch("src.agents.graph_builder.GraphBuilderAgent.extract_entities", return_value=FAKE_ENTITIES), \
+         patch.object(system.writer, "write_report", wraps=system.writer.write_report) as mock_write:
+
+        system.run("solar energy trends")
+
+        args, kwargs = mock_write.call_args
+        entities_passed = args[1] if len(args) > 1 else kwargs.get("entities", {})
+        assert "companies" in entities_passed
+        assert "Tesla" in entities_passed["companies"]
+
+
+@patch("src.agents.base_agent.requests.post")
+@patch("src.workflow.agent_pipeline.KnowledgeGraph")
+def test_pipeline_entities_in_result(mock_kg_class, mock_post):
+    mock_kg_class.return_value = make_mock_kg()
+    mock_post.return_value = mock_response()
+
+    with patch("src.agents.graph_builder.GraphBuilderAgent.extract_entities", return_value=FAKE_ENTITIES):
+        result = MultiAgentResearchSystem().run("solar energy")
+
+    assert result["entities"] == FAKE_ENTITIES
+
+
+@patch("src.agents.base_agent.requests.post")
+@patch("src.workflow.agent_pipeline.KnowledgeGraph")
 def test_all_agents_called(mock_kg_class, mock_post):
     mock_kg_class.return_value = make_mock_kg()
     mock_post.return_value = mock_response()
@@ -92,3 +122,7 @@ def test_all_agents_called(mock_kg_class, mock_post):
 
         for agent_call in [p1, p2, p3, p4, p5, p6, p7]:
             agent_call.assert_called_once()
+
+        # verify writer was called with entities
+        write_args = p6.call_args
+        assert write_args is not None

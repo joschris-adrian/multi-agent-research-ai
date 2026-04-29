@@ -9,7 +9,7 @@ class WriterAgent(BaseAgent):
         super().__init__(
             role="Technical Writer",
             goal="Write a well-structured research report",
-            temperature=0.8,  # slightly higher for more varied prose
+            temperature=0.8,
             max_tokens=800,
         )
         self._finetuned = None
@@ -23,8 +23,24 @@ class WriterAgent(BaseAgent):
                 print(f"[writer] {e}")
                 print("[writer] falling back to Ollama")
 
-    def write_report(self, insights: str) -> str:
-        prompt = f"""Write a structured research report using the following insights.
+    def write_report(self, insights: str, entities: dict = None) -> str:
+        entities = entities or {}
+
+        companies = ", ".join(entities.get("companies", [])) or "not identified"
+        trends = ", ".join(entities.get("trends", [])) or "not identified"
+        technologies = ", ".join(entities.get("technologies", [])) or "not identified"
+
+        prompt = f"""Write a structured research report using the insights and entities below.
+
+Key entities extracted from the knowledge graph:
+- Companies: {companies}
+- Trends: {trends}
+- Technologies: {technologies}
+
+Where relevant, reference these entities directly in the report rather than inventing new ones.
+
+Insights:
+{insights}
 
 Format:
 Title
@@ -32,10 +48,7 @@ Introduction
 Key Trends
 Industry Leaders
 Future Outlook
-Conclusion
-
-Insights:
-{insights}"""
+Conclusion"""
 
         if self._finetuned:
             return self._finetuned.generate(prompt)

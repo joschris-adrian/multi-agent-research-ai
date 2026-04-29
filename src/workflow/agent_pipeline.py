@@ -55,14 +55,15 @@ class MultiAgentResearchSystem:
 
             print(f"stored {len(entities.get('companies', []))} companies, "
                   f"{len(entities.get('trends', []))} trends, "
-                f"{len(entities.get('technologies', []))} technologies")
+                  f"{len(entities.get('technologies', []))} technologies")
 
         except Exception as e:
             print(f"[graph builder] neo4j unavailable, skipping: {e}")
             entities = {"companies": [], "trends": [], "technologies": [], "relationships": []}
 
+        # writer now receives entities from the knowledge graph
         print("\n[writer]")
-        report = self.writer.write_report(insights)
+        report = self.writer.write_report(insights, entities)
         print(report)
 
         print("\n[critic]")

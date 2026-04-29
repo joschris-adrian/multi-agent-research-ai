@@ -164,7 +164,17 @@ The writer falls back to Ollama automatically if the adapter hasn't been trained
 ## Running tests
 
 ```bash
+# fast run - excludes slow torch/finetuning tests (~2 min)
+pytest tests/ -m "not finetuning" -v
+
+# full run including finetuning tests (~10 min)
 pytest tests/ -v
+
+# parallel run (install pytest-xdist first)
+# note: use -n 2, not -n auto — higher concurrency causes OOM crashes
+# when multiple workers load the ONNX embedding model simultaneously
+pip install pytest-xdist
+pytest tests/ -m "not finetuning" -n 2
 ```
 
 Tests use mocks so Ollama and Neo4j don't need to be running.

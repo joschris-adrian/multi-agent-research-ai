@@ -3,6 +3,8 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 
+pytestmark = pytest.mark.finetuning
+
 
 # ── dataset ───────────────────────────────────────────────────────────────────
 
@@ -47,7 +49,6 @@ def test_adapter_has_required_files():
 # ── peft model (mocked at sys.modules level to avoid torch DLL issues) ────────
 
 def make_torch_mock():
-    """Returns a mock that stands in for torch without loading any DLLs."""
     torch_mock = MagicMock()
     torch_mock.float32 = "float32"
     torch_mock.no_grad.return_value.__enter__ = lambda s: s
@@ -139,9 +140,7 @@ def test_writer_falls_back_to_ollama_by_default(mock_post):
 
 @patch("src.agents.base_agent.requests.post")
 def test_writer_uses_finetuned_when_env_set(mock_post):
-    mock_post.return_value = MagicMock(
-        json=lambda: {"response": "fallback"}
-    )
+    mock_post.return_value = MagicMock(json=lambda: {"response": "fallback"})
     mock_finetuned = MagicMock()
     mock_finetuned.generate.return_value = "Fine-tuned report"
 
@@ -163,6 +162,6 @@ def test_writer_uses_finetuned_when_env_set(mock_post):
 
         import src.agents.writer as writer_module
         importlib.reload(writer_module)
-        writer = writer_module.WriterAgent()
-        result = writer.write_report("some insights")
+        w = writer_module.WriterAgent()
+        result = w.write_report("some insights")
         assert result == "Fine-tuned report"

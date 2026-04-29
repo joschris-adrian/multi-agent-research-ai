@@ -8,7 +8,7 @@ Usage:
 Requirements:
     - Ollama running with llama3.2 pulled
     - uvicorn api.main:app --reload running in another terminal
-    - Neo4j optional (checks are skipped if not running)
+    - Docker optional (Neo4j skipped if unavailable)
 """
 
 import sys
@@ -47,13 +47,13 @@ def check(name, fn):
 
 def check_tests():
     result = subprocess.run(
-        ["pytest", "tests/", "--tb=no", "-q"],
+        ["pytest", "tests/", "-m", "not finetuning", "--tb=no", "-q"],
         capture_output=True, text=True
     )
     print(result.stdout[-800:])
     assert result.returncode == 0, "some tests failed"
 
-check("Full pytest suite", check_tests)
+check("Fast pytest suite (excluding finetuning)", check_tests)
 
 
 def check_ollama():
@@ -107,11 +107,12 @@ check("Analyst agent", check_analyst)
 
 def check_writer():
     from src.agents.writer import WriterAgent
-    report = WriterAgent().write_report("Solar energy is growing rapidly.")
+    entities = {"companies": ["Tesla"], "trends": ["Solar growth"], "technologies": ["Battery storage"]}
+    report = WriterAgent().write_report("Solar energy is growing rapidly.", entities)
     assert isinstance(report, str) and len(report) > 0
     print(f"  report preview: {report[:80]}...")
 
-check("Writer agent", check_writer)
+check("Writer agent (with entities)", check_writer)
 
 
 def check_critic():
@@ -127,11 +128,12 @@ def check_pipeline():
     from src.workflow.agent_pipeline import MultiAgentResearchSystem
     system = MultiAgentResearchSystem()
     result = system.run("What are the latest trends in solar energy?")
-    for key in ["question", "tasks", "documents", "insights", "report", "critic_feedback"]:
+    for key in ["question", "tasks", "documents", "insights", "entities", "report", "critic_feedback"]:
         assert key in result, f"missing key: {key}"
     assert len(result["report"]) > 50
     print(f"  report length: {len(result['report'])} chars")
-    print(f"  report preview: {result['report'][:100]}...")
+    print(f"  entities found: {list(result['entities'].keys())}")
+    print(f"  companies: {result['entities'].get('companies', [])}")
 
 check("Full pipeline (all agents)", check_pipeline)
 
@@ -204,13 +206,14 @@ def check_graphql():
 
 check("GraphQL endpoint", check_graphql)
 
+
 def check_lora():
     assert os.path.exists("models/lora-adapter"), \
         "adapter not found — run: python training/finetune.py"
     files = os.listdir("models/lora-adapter")
     assert any("adapter" in f for f in files), \
         f"adapter files missing, got: {files}"
-    print(f"  adapter files: {files}")
+    print(f"  adapter files: {[f for f in files if 'adapter' in f]}")
 
 check("LoRA adapter (file check)", check_lora)
 
