@@ -1,5 +1,6 @@
 import os
 import requests
+from ..mcp.client.mcp_client import MCPClient
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
@@ -11,6 +12,7 @@ class BaseAgent:
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.mcp = MCPClient()
 
     def run(self, prompt):
         system_prompt = f"""You are an AI agent.
@@ -33,4 +35,7 @@ Respond clearly and concisely."""
                 }
             },
         )
-        return response.json()["response"]
+        data = response.json()
+        if "error" in data:
+          raise RuntimeError(f"[base_agent] Ollama error: {data['error']}")
+        return data["response"]

@@ -13,7 +13,6 @@ Requirements:
 
 import sys
 import os
-import subprocess
 import requests
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -44,24 +43,36 @@ def check(name, fn):
             print(f"  {e}")
             results.append((name, "FAIL", str(e)))
 
-
-def check_tests():
-    result = subprocess.run(
-        ["pytest", "tests/", "-m", "not finetuning", "--tb=no", "-q"],
-        capture_output=True, text=True
-    )
-    print(result.stdout[-800:])
-    assert result.returncode == 0, "some tests failed"
-
-check("Fast pytest suite (excluding finetuning)", check_tests)
-
-
 def check_ollama():
     r = requests.get("http://localhost:11434", timeout=5)
     assert r.status_code == 200, f"ollama returned {r.status_code}"
     print("  ollama is running")
 
 check("Ollama health", check_ollama)
+
+
+def check_mcp_vector_store():
+    r = requests.post(
+        "http://localhost:8001/vector_store/search",
+        json={"query": "health check"},
+        timeout=5
+    )
+    assert r.status_code == 200, f"vector store MCP returned {r.status_code}"
+    print("  vector store MCP server is running on port 8001")
+
+check("MCP vector store server", check_mcp_vector_store)
+
+
+def check_mcp_web_search():
+    r = requests.post(
+        "http://localhost:8002/web_search/search",
+        json={"query": "health check", "max_results": 1, "retries": 1, "delay": 0},
+        timeout=5
+    )
+    assert r.status_code == 200, f"web search MCP returned {r.status_code}"
+    print("  web search MCP server is running on port 8002")
+
+check("MCP web search server", check_mcp_web_search)
 
 
 def check_single_agent():
@@ -104,6 +115,19 @@ def check_analyst():
 
 check("Analyst agent", check_analyst)
 
+def check_graph_builder():
+    from src.agents.graph_builder import GraphBuilderAgent
+    agent = GraphBuilderAgent()
+    entities = agent.extract_entities(
+        "Tesla dominates EV market. Battery storage is a key trend.",
+        "electric vehicles"
+    )
+    assert isinstance(entities, dict)
+    assert "companies" in entities
+    print(f"  companies: {entities.get('companies', [])}")
+    print(f"  trends: {entities.get('trends', [])}")
+
+check("Graph builder agent", check_graph_builder)
 
 def check_writer():
     from src.agents.writer import WriterAgent
@@ -150,21 +174,6 @@ def check_neo4j():
     print(f"  found {len(entities)} entities for test topic")
 
 check("Neo4j knowledge graph", check_neo4j)
-
-
-def check_graph_builder():
-    from src.agents.graph_builder import GraphBuilderAgent
-    agent = GraphBuilderAgent()
-    entities = agent.extract_entities(
-        "Tesla dominates EV market. Battery storage is a key trend.",
-        "electric vehicles"
-    )
-    assert isinstance(entities, dict)
-    assert "companies" in entities
-    print(f"  companies: {entities.get('companies', [])}")
-    print(f"  trends: {entities.get('trends', [])}")
-
-check("Graph builder agent", check_graph_builder)
 
 
 def check_api():

@@ -1,5 +1,4 @@
 from .base_agent import BaseAgent
-from ..memory.vector_store import VectorStore
 
 
 class AnalystAgent(BaseAgent):
@@ -8,17 +7,23 @@ class AnalystAgent(BaseAgent):
             role="Data Analyst",
             goal="Extract meaningful insights from research"
         )
-        self.memory = VectorStore()
 
     def analyze(self, documents, query):
         # pull anything relevant from previous searches
-        past_docs = self.memory.search(query)
+        try:
+            past_docs = self.mcp.call_tool("vector_store", "search", {"query": query}) or []
+        except Exception as e:
+            print(f"[analyst] vector store unavailable: {e}")
+            past_docs = []
 
         current = ""
         for doc in documents[:5]:
             current += f"Title: {doc['title']}\nContent: {doc['content']}\n\n"
 
-        past = "\n".join(past_docs)
+        past = "\n".join(
+            doc["content"] if isinstance(doc, dict) else doc
+            for doc in past_docs
+        )
 
         prompt = f"""Use the research below to extract insights.
 

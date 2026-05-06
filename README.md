@@ -11,15 +11,15 @@ The system runs fully locally using Ollama, so no API keys or costs involved.
 When you ask a question, six agents run in sequence:
 
 1. **Planner** breaks the question into concrete research tasks
-2. **Researcher** searches the web via DuckDuckGo and stores results in ChromaDB
-3. **Analyst** pulls from both current results and past memory to extract insights
+2. **Researcher** calls the MCP web search server (DuckDuckGo) and stores results via the MCP vector store server (ChromaDB)
+3. **Analyst** pulls from both current results and past memory via MCP vector store to extract insights
 4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j - runs at low temperature for consistent JSON output
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
 6. **Critic** reviews the report and flags anything missing or unclear
 
 The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities via GraphQL.
 
-If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 times with a short delay before giving up and returning an empty result set rather than crashing the pipeline.
+If the MCP web search server rate-limits or returns nothing, the researcher retries up to 3 times with a short delay before giving up and returning an empty result set rather than crashing the pipeline.
 
 ---
 
@@ -29,8 +29,9 @@ If DuckDuckGo rate-limits or returns nothing, the researcher retries up to 3 tim
 |-----------------|---------------------------------|
 | LLM             | Ollama (llama3.2)               |
 | Agent pipeline  | Custom multi-agent architecture |
-| Web search      | DuckDuckGo via `ddgs`           |
-| Vector memory   | ChromaDB                        |
+| Web search      | DuckDuckGo via `ddgs` + MCP     |
+| Vector memory   | ChromaDB via MCP                |
+| MCP servers     | FastAPI (vector store: 8001, web search: 8002) |
 | Knowledge graph | Neo4j                           |
 | GraphQL API     | Strawberry                      |
 | Backend         | FastAPI                         |
@@ -55,13 +56,19 @@ multi-agent-research-ai/
 │   ├── agents/
 │   │   ├── base_agent.py       # Ollama API call + system prompt
 │   │   ├── planner.py
-│   │   ├── researcher.py       # DuckDuckGo search with retry + ChromaDB write
-│   │   ├── analyst.py          # ChromaDB read + insight extraction
+│   │   ├── researcher.py       # Calls MCP web search server + MCP vector store
+│   │   ├── analyst.py          # Calls MCP vector store for past memory + insight extraction
 │   │   ├── graph_builder.py    # Extracts entities for Neo4j
 │   │   ├── writer.py           # Ollama or fine-tuned LoRA model
 │   │   └── critic.py
 │   ├── memory/
 │   │   └── vector_store.py     # ChromaDB wrapper
+│   ├── mcp/
+│   │   ├── client/
+│   │   │   └── mcp_client.py          # HTTP client used by all agents
+│   │   └── servers/
+│   │       ├── vector_store_server.py # ChromaDB exposed as MCP server
+│   │       └── web_search_server.py   # DuckDuckGo exposed as MCP server
 │   ├── models/
 │   │   └── peft_model.py       # LoRA adapter loader
 │   ├── graph/
@@ -119,12 +126,18 @@ pip install -r requirements.txt
 python main.py
 ```
 
-**Option 2 - API + UI (two terminals):**
+**Option 2 - API + UI (four terminals):**
 ```bash
 # terminal 1
 uvicorn api.main:app --reload
 
 # terminal 2
+uvicorn src.mcp.servers.vector_store_server:app --port 8001 --reload
+
+# terminal 3
+uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
+
+# terminal 4
 streamlit run ui/streamlit_app.py
 ```
 
@@ -179,7 +192,7 @@ pytest tests/ -m "not finetuning" -n 2
 
 Tests use mocks so Ollama and Neo4j don't need to be running.
 
-To verify all components end to end (requires Ollama and uvicorn running):
+To verify all components end to end (requires Ollama, uvicorn, and both MCP servers running):
 
 ```bash
 # terminal 1
@@ -189,6 +202,12 @@ ollama serve
 uvicorn api.main:app --reload
 
 # terminal 3
+uvicorn src.mcp.servers.vector_store_server:app --port 8001 --reload
+
+# terminal 4
+uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
+
+# terminal 5
 python run_all.py
 ```
 
@@ -234,7 +253,9 @@ The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2
 
 - `llama3.2` is a 3B model - outputs can be vague on complex topics. `mistral` or `llama3.1:8b` give better results.
 - ChromaDB runs in-memory by default, so vector memory resets on each restart.
-- DuckDuckGo occasionally rate-limits - the researcher retries 3 times before returning empty.
+- ChromaDB's ONNX embedding model takes 20-30 seconds to initialise on first write. The MCP vector store client uses a 60 second timeout to handle this - subsequent calls are fast.
+- DuckDuckGo occasionally rate-limits - the MCP web search server retries 3 times before returning empty.
+- MCP servers must be running separately for agents to access web search and vector memory. Vector store runs on port 8001, web search on port 8002. The analyst degrades gracefully if unavailable, but the researcher will return empty results.
 - The graph builder relies on the LLM returning valid JSON - falls back to empty entity set if parsing fails.
 - Neo4j must be running separately (via Docker) for the knowledge graph to work. The pipeline skips it gracefully if unavailable.
 - The LoRA fine-tuned writer uses opt-125m which is too small for high-quality report generation without significantly more training data.
@@ -249,6 +270,7 @@ The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2
 - Streaming responses via WebSockets
 - Visualise the knowledge graph in the Streamlit UI
 - API authentication for deployment
+- Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
 
 ---
 

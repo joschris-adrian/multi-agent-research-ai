@@ -1,8 +1,6 @@
 import time
 from .base_agent import BaseAgent
-from ddgs import DDGS
-from ..memory.vector_store import VectorStore
-
+import traceback
 
 class ResearchAgent(BaseAgent):
     def __init__(self):
@@ -10,30 +8,25 @@ class ResearchAgent(BaseAgent):
             role="Research Specialist",
             goal="Collect concise information from online sources"
         )
-        self.memory = VectorStore()
+        
 
     def search(self, query, max_results=3, retries=3, delay=2):
         for attempt in range(retries):
             try:
-                documents = []
-                with DDGS() as ddgs:
-                    results = ddgs.text(query, max_results=max_results)
-                    for r in results:
-                        documents.append({
-                            "title": r["title"],
-                            "content": r["body"][:500],
-                            "source": r["href"]
-                        })
-
+                documents = self.mcp.call_tool("web_search", "search", {
+                    "query": query,
+                    "max_results": max_results,
+                    "retries": retries,
+                    "delay": delay
+                })
                 if documents:
-                    self.memory.add_documents(documents)
+                    self.mcp.call_tool("vector_store", "add", {"documents": documents})
                     return documents
-
             except Exception as e:
                 print(f"[researcher] search attempt {attempt + 1} failed: {e}")
+                traceback.print_exc()
                 if attempt < retries - 1:
                     time.sleep(delay)
-
         print("[researcher] all search attempts failed, returning empty")
         return []
 

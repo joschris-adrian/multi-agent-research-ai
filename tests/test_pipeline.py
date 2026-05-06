@@ -1,10 +1,14 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 from src.workflow.agent_pipeline import MultiAgentResearchSystem
 
 
 def mock_response(text="mocked agent response"):
-    return MagicMock(json=lambda: {"response": text})
-
+    return MagicMock(json=lambda: {
+        "response": text,
+        "result": [
+            {"title": "Solar", "content": "Solar is growing.", "source": "http://example.com"}
+        ]
+    })
 
 def make_mock_kg():
     kg = MagicMock()
@@ -126,3 +130,12 @@ def test_all_agents_called(mock_kg_class, mock_post):
         # verify writer was called with entities
         write_args = p6.call_args
         assert write_args is not None
+
+@patch("src.agents.base_agent.requests.post")
+@patch("src.workflow.agent_pipeline.KnowledgeGraph")
+def test_mcp_client_initialized_in_agents(mock_kg_class, mock_post):
+    mock_kg_class.return_value = make_mock_kg()
+    mock_post.return_value = mock_response()
+    system = MultiAgentResearchSystem()
+    assert hasattr(system.researcher, "mcp")
+    assert hasattr(system.analyst, "mcp")
