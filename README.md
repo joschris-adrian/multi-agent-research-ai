@@ -151,7 +151,7 @@ bash setup.sh  # first time only
 
 ---
 
-## Fine-tuning (PEFT + LoRA)
+## Fine-tuning using PEFT(LoRA)
 
 The writer agent can be swapped between the default Ollama model and a locally fine-tuned LoRA adapter.
 
