@@ -6,16 +6,18 @@ from typing import List, Dict, Any
 app = FastAPI()
 store = VectorStore()
 
-
 class SearchRequest(BaseModel):
     query: str
-
-class AddRequest(BaseModel):
-    documents: List[Dict[str, Any]]
+    top_k: int = 5
 
 @app.post("/vector_store/search")
 def search(request: SearchRequest):
-    return {"result": store.search(request.query)}
+    results = store.search(request.query, top_k=request.top_k)
+    return {"result": results}
+
+
+class AddRequest(BaseModel):
+    documents: List[Dict[str, Any]]
 
 @app.post("/vector_store/add")
 def add(request: AddRequest):

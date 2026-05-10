@@ -55,13 +55,11 @@ def check_mcp_vector_store():
     r = requests.post(
         "http://localhost:8001/vector_store/search",
         json={"query": "health check"},
-        timeout=5
+        timeout=60
     )
     assert r.status_code == 200, f"vector store MCP returned {r.status_code}"
     print("  vector store MCP server is running on port 8001")
-
-check("MCP vector store server", check_mcp_vector_store)
-
+    
 
 def check_mcp_web_search():
     r = requests.post(

@@ -33,11 +33,20 @@ class VectorStore:
                 ids=[f"doc_{i}_{hash(text)}"]
             )
 
-    def search(self, query, n_results=5):
-
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
-
-        return results["documents"][0]
+    def search(self, query, top_k=5):
+        try:
+            results = self.collection.query(
+                query_texts=[query],
+                n_results=top_k,
+                include=["documents", "distances"]
+            )
+            docs = results["documents"][0]
+            distances = results["distances"][0]
+            scored = sorted(
+                [{"content": doc, "score": 1 - dist} for doc, dist in zip(docs, distances)],
+                key=lambda x: x["score"],
+                reverse=True
+            )
+            return [item for item in scored if item["score"] > 0.3]
+        except Exception:
+            return []

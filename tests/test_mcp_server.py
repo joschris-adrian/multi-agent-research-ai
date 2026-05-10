@@ -21,8 +21,8 @@ def test_vector_store_search_calls_store_with_query():
         mock_store.search.return_value = []
         client = get_vs_client()
         client.post("/vector_store/search", json={"query": "renewables"})
-        mock_store.search.assert_called_once_with("renewables")
-
+        mock_store.search.assert_called_once_with("renewables", top_k=5)
+        
 def test_vector_store_add_returns_ok():
     with patch("src.mcp.servers.vector_store_server.store") as mock_store:
         client = get_vs_client()

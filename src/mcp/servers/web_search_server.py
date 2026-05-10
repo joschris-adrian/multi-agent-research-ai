@@ -24,11 +24,20 @@ def search(request: SearchRequest):
             with DDGS() as ddgs:
                 results = ddgs.text(query, max_results=max_results)
                 for r in results:
-                    documents.append({
-                        "title": r["title"],
-                        "content": r["body"][:500],
-                        "source": r["href"]
-                    })
+                    body = r["body"]
+                    chunk_size = 200
+                    overlap = 50
+                    chunks = [
+                        body[i:i + chunk_size]
+                        for i in range(0, len(body), chunk_size - overlap)
+                        if body[i:i + chunk_size].strip()
+                    ]
+                    for chunk in chunks:
+                        documents.append({
+                            "title": r["title"],
+                            "content": chunk,
+                            "source": r["href"]
+                        })
             if documents:
                 return {"result": documents}
         except Exception as e:

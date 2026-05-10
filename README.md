@@ -11,8 +11,8 @@ The system runs fully locally using Ollama, so no API keys or costs involved.
 When you ask a question, six agents run in sequence:
 
 1. **Planner** breaks the question into concrete research tasks
-2. **Researcher** calls the MCP web search server (DuckDuckGo) and stores results via the MCP vector store server (ChromaDB)
-3. **Analyst** pulls from both current results and past memory via MCP vector store to extract insights
+2. **Researcher** calls the MCP web search server (DuckDuckGo), chunks results into 200-character overlapping segments and stores them via the MCP vector store server (ChromaDB)
+3. **Analyst** retrieves semantically ranked chunks from the MCP vector store (RAG), filters by relevance score and injects the top results into the prompt alongside current research
 4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j - runs at low temperature for consistent JSON output
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
 6. **Critic** reviews the report and flags anything missing or unclear
@@ -32,6 +32,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
 | MCP servers     | FastAPI (vector store: 8001, web search: 8002) |
+| RAG             | ChromaDB semantic search with relevance scoring |
 | Knowledge graph | Neo4j                           |
 | GraphQL API     | Strawberry                      |
 | Backend         | FastAPI                         |
@@ -232,7 +233,7 @@ I ran the pipeline against a single-agent baseline on the query *"What are the l
 | Clarity      | 9/10        | 9/10         |
 | Accuracy     | 8/10        | 8.5/10       |
 
-The multi-agent output was better structured and more complete. The single-agent scored slightly higher on accuracy due to citing sources inline.
+The multi-agent output was better structured and more complete, benefiting from RAG-retrieved context ranked by relevance score. The single-agent scored slightly higher on accuracy due to citing sources inline.
 
 ### Fine-tuning evaluation
 
@@ -259,6 +260,8 @@ The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2
 - The graph builder relies on the LLM returning valid JSON - falls back to empty entity set if parsing fails.
 - Neo4j must be running separately (via Docker) for the knowledge graph to work. The pipeline skips it gracefully if unavailable.
 - The LoRA fine-tuned writer uses opt-125m which is too small for high-quality report generation without significantly more training data.
+- Web search results are chunked into 200-character segments with 50-character overlap before storing in ChromaDB. DuckDuckGo snippets are short so each result typically produces 2-3 chunks.
+- ChromaDB relevance scores use cosine distance and chunks scoring below 0.3 are filtered out. On sparse or niche queries this may return no past context.
 
 ---
 
@@ -271,6 +274,9 @@ The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2
 - Visualise the knowledge graph in the Streamlit UI
 - API authentication for deployment
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
+- Tune chunk size and overlap for longer web search results
+- Add a reranker model on top of ChromaDB retrieval for more precise RAG
+- Make the relevance score threshold configurable via environment variable
 
 ---
 

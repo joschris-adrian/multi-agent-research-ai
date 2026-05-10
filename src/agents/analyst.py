@@ -11,7 +11,7 @@ class AnalystAgent(BaseAgent):
     def analyze(self, documents, query):
         # pull anything relevant from previous searches
         try:
-            past_docs = self.mcp.call_tool("vector_store", "search", {"query": query}) or []
+            past_docs = self.mcp.call_tool("vector_store", "search", {"query": query, "top_k": 5}) or []
         except Exception as e:
             print(f"[analyst] vector store unavailable: {e}")
             past_docs = []
@@ -21,7 +21,8 @@ class AnalystAgent(BaseAgent):
             current += f"Title: {doc['title']}\nContent: {doc['content']}\n\n"
 
         past = "\n".join(
-            doc["content"] if isinstance(doc, dict) else doc
+            f"[relevance: {doc['score']:.2f}] {doc['content']}" if isinstance(doc, dict) and "score" in doc
+            else (doc["content"] if isinstance(doc, dict) else doc)
             for doc in past_docs
         )
 
@@ -30,7 +31,7 @@ class AnalystAgent(BaseAgent):
 Current research:
 {current}
 
-Previous searches on related topics:
+Relevant context retrieved from memory (ranked by relevance):
 {past}
 
 Pull out:

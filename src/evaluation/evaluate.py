@@ -10,10 +10,12 @@ def main():
     baseline = SingleAgentBaseline()
     evaluator = Evaluator()
 
-    print("\n--- Running Multi-Agent System ---")
+    print("\n--- Running Multi-Agent System (with RAG + MCP) ---")
     multi_result = multi_agent.run(question)
     multi_answer = multi_result["report"]
-
+    print(f"  entities found: {list(multi_result['entities'].keys())}")
+    print(f"  documents retrieved: {len(multi_result['documents'])}")
+    
     print("\n--- Running Single-Agent Baseline ---")
     single_answer = baseline.run(question)
 

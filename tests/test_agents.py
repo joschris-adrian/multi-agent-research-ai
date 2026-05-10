@@ -172,18 +172,6 @@ def test_researcher_extract_query(mock_post):
 
 
 @patch("src.agents.base_agent.requests.post")
-def test_researcher_search_structure(mock_post):
-    mock_post.return_value = MagicMock(json=lambda: {"result": [
-        {"title": "Solar Boom", "content": "Solar is growing fast.", "source": "http://example.com"}
-    ]})
-    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=[
-        {"title": "Solar Boom", "content": "Solar is growing fast.", "source": "http://example.com"}
-    ]):
-        docs = ResearchAgent().search("solar energy trends")
-    assert isinstance(docs, list)
-    assert all(k in docs[0] for k in ["title", "content", "source"])
-
-@patch("src.agents.base_agent.requests.post")
 def test_mocked_base_agent(mock_post):
     mock_post.return_value = make_mock("Mocked response")
     result = PlannerAgent().plan("Test")
@@ -265,3 +253,102 @@ def test_analyst_handles_mcp_unavailable():
             docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
             result = AnalystAgent().analyze(docs, "solar energy")
             assert isinstance(result, str) and len(result) > 0
+
+# Chunking 
+
+def test_researcher_chunks_long_content():
+    long_body = "Solar energy word. " * 60
+    with patch("src.mcp.servers.web_search_server.DDGS") as mock_ddgs:
+        mock_ddgs.return_value.__enter__.return_value.text.return_value = [
+            {"title": "Solar", "body": long_body, "href": "http://example.com"}
+        ]
+        from src.mcp.servers.web_search_server import search, SearchRequest
+        req = SearchRequest(query="solar", max_results=1, retries=1, delay=0)
+        result = search(req)
+        docs = result["result"]
+        assert len(docs) > 1
+
+
+def test_researcher_chunks_short_content_stays_single():
+    short_body = "Solar is growing fast."
+    with patch("src.mcp.servers.web_search_server.DDGS") as mock_ddgs:
+        mock_ddgs.return_value.__enter__.return_value.text.return_value = [
+            {"title": "Solar", "body": short_body, "href": "http://example.com"}
+        ]
+        from src.mcp.servers.web_search_server import search, SearchRequest
+        req = SearchRequest(query="solar", max_results=1, retries=1, delay=0)
+        result = search(req)
+        docs = result["result"]
+        assert len(docs) == 1
+
+
+def test_researcher_empty_chunks_are_excluded():
+    body = "Solar. " + " " * 300 + "Wind."
+    with patch("src.mcp.servers.web_search_server.DDGS") as mock_ddgs:
+        mock_ddgs.return_value.__enter__.return_value.text.return_value = [
+            {"title": "Energy", "body": body, "href": "http://example.com"}
+        ]
+        from src.mcp.servers.web_search_server import search, SearchRequest
+        req = SearchRequest(query="energy", max_results=1, retries=1, delay=0)
+        result = search(req)
+        docs = result["result"]
+        assert all(d["content"].strip() for d in docs)
+
+
+def test_researcher_chunks_preserve_title_and_source():
+    long_body = "Renewable energy content. " * 50
+    with patch("src.mcp.servers.web_search_server.DDGS") as mock_ddgs:
+        mock_ddgs.return_value.__enter__.return_value.text.return_value = [
+            {"title": "Energy", "body": long_body, "href": "http://example.com"}
+        ]
+        from src.mcp.servers.web_search_server import search, SearchRequest
+        req = SearchRequest(query="energy", max_results=1, retries=1, delay=0)
+        result = search(req)
+        docs = result["result"]
+        assert all(d["title"] == "Energy" for d in docs)
+        assert all(d["source"] == "http://example.com" for d in docs)
+
+
+# RAG retrieval 
+
+def test_analyst_passes_top_k_to_mcp():
+    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=[]) as mock_tool:
+        with patch("src.agents.base_agent.requests.post") as mock_post:
+            mock_post.return_value = make_mock("Solar insights")
+            docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
+            AnalystAgent().analyze(docs, "solar energy")
+            search_calls = [c for c in mock_tool.call_args_list if c[0][1] == "search"]
+            assert len(search_calls) > 0
+            assert search_calls[0][0][2].get("top_k") == 5
+
+
+def test_analyst_prompt_includes_relevance_score():
+    scored_docs = [{"content": "Solar grew 40%.", "score": 0.85}]
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("insights")
+
+    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=scored_docs):
+        with patch("src.agents.base_agent.requests.post") as mock_post:
+            mock_post.side_effect = capture
+            docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
+            AnalystAgent().analyze(docs, "solar energy")
+            assert "0.85" in captured["prompt"]
+            assert "relevance" in captured["prompt"].lower()
+
+
+def test_analyst_prompt_uses_rag_framing():
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("insights")
+
+    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=[]):
+        with patch("src.agents.base_agent.requests.post") as mock_post:
+            mock_post.side_effect = capture
+            docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
+            AnalystAgent().analyze(docs, "solar energy")
+            assert "retrieved from memory" in captured["prompt"].lower()

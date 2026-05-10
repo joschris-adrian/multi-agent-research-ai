@@ -1,6 +1,5 @@
 import time
 from .base_agent import BaseAgent
-import traceback
 
 class ResearchAgent(BaseAgent):
     def __init__(self):
@@ -24,7 +23,6 @@ class ResearchAgent(BaseAgent):
                     return documents
             except Exception as e:
                 print(f"[researcher] search attempt {attempt + 1} failed: {e}")
-                traceback.print_exc()
                 if attempt < retries - 1:
                     time.sleep(delay)
         print("[researcher] all search attempts failed, returning empty")
