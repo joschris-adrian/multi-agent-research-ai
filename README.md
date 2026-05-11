@@ -11,7 +11,7 @@ The system runs fully locally using Ollama, so no API keys or costs involved.
 When you ask a question, six agents run in sequence:
 
 1. **Planner** breaks the question into concrete research tasks
-2. **Researcher** calls the MCP web search server (DuckDuckGo), chunks results into 200-character overlapping segments and stores them via the MCP vector store server (ChromaDB)
+2. **Researcher** calls the MCP web search server (DuckDuckGo) which chunks results into 200-character overlapping segments before returning them, then stores them via the MCP vector store server (ChromaDB)
 3. **Analyst** retrieves semantically ranked chunks from the MCP vector store (RAG), filters by relevance score and injects the top results into the prompt alongside current research
 4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j - runs at low temperature for consistent JSON output
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
