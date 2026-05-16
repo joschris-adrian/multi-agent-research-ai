@@ -289,12 +289,14 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - Web search results are chunked into 200-character segments with 50-character overlap before storing in ChromaDB. DuckDuckGo snippets are short so each result typically produces 2-3 chunks.
 - ChromaDB relevance scores use cosine distance and chunks scoring below 0.3 are filtered out. On sparse or niche queries this may return no past context.
 - Supercharge mode deduplicates by source URL but not by content - if the same content is served from multiple URLs it may be stored multiple times.
+- The evaluation pipeline cannot delete `chroma_db` while the MCP vector store server is running on Windows due to file locking. Evaluation chunks are added to the live store and cleaned up by TTL eviction after 7 days. To reset immediately, stop the MCP vector store server and delete `chroma_db/` manually.
 
 ---
 
 ## Possible next steps
 
-- **arXiv integration** - an additional MCP server wrapping the arXiv API to retrieve the most recent papers on a topic, giving the researcher access to academic sources alongside web search results
+- Increase evaluator max_tokens to ensure full scoring output is generated - current 500 token limit causes truncated evaluation responses
+- arXiv API MCP server for academic paper retrieval alongside web search
 - Add a reranker model on top of ChromaDB retrieval for more precise RAG
 - Make the relevance score threshold configurable via environment variable
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
@@ -304,7 +306,6 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - Visualise the knowledge graph in the Streamlit UI
 - API authentication for deployment
 - Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs - fits naturally into the existing LoRA training pipeline
-
 ---
 
 ## License
