@@ -78,6 +78,19 @@ services:
       - ollama
     environment:
       - MCP_HOST=http://localhost:8002
+  
+  mcp_arxiv:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: research_mcp_arxiv
+    command: uvicorn src.mcp.servers.arxiv_server:app --host 0.0.0.0 --port 8003
+    ports:
+      - "8003:8003"
+    depends_on:
+      - ollama
+    environment:
+      - MCP_HOST=http://localhost:8003
 
 volumes:
   ollama_data:

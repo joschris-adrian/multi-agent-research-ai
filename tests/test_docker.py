@@ -146,6 +146,20 @@ def test_compose_mcp_env_has_mcp_host():
     ws_env = compose["services"].get("mcp_web_search", {}).get("environment", [])
     assert any("MCP_HOST" in str(e) for e in vs_env)
     assert any("MCP_HOST" in str(e) for e in ws_env)
+
+def test_compose_has_arxiv_mcp_service():
+    with open(COMPOSE_FILE) as f:
+        compose = yaml.safe_load(f)
+    services = compose.get("services", {})
+    assert "mcp_arxiv" in services
+
+
+def test_compose_arxiv_mcp_correct_port():
+    with open(COMPOSE_FILE) as f:
+        compose = yaml.safe_load(f)
+    arxiv = compose["services"].get("mcp_arxiv", {})
+    assert any("8003" in str(p) for p in arxiv.get("ports", []))
+    
 # Helper 
 
 from contextlib import contextmanager

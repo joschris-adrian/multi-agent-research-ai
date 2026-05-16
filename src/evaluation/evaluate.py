@@ -1,14 +1,15 @@
 import os
 import shutil
+import httpx
 from ..workflow.agent_pipeline import MultiAgentResearchSystem
 from .baseline import SingleAgentBaseline
 from .evaluator import Evaluator
-import httpx
 
 def main():
     for name, url, payload in [
         ("vector store MCP", "http://localhost:8001/vector_store/search", {"query": "health"}),
         ("web search MCP", "http://localhost:8002/web_search/search", {"query": "health", "max_results": 1, "retries": 1, "delay": 0}),
+        ("arxiv MCP", "http://localhost:8003/arxiv/search", {"topic": "health", "max_results": 1}),
     ]:
         try:
             r = httpx.post(url, json=payload, timeout=60.0)

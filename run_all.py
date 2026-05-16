@@ -72,6 +72,17 @@ def check_mcp_web_search():
 
 check("MCP web search server", check_mcp_web_search)
 
+def check_mcp_arxiv():
+    r = requests.post(
+        "http://localhost:8003/arxiv/search",
+        json={"topic": "renewable energy", "max_results": 1},
+        timeout=15
+    )
+    assert r.status_code == 200, f"arxiv MCP returned {r.status_code}"
+    results = r.json().get("result", [])
+    print(f"  arxiv MCP server reachable on port 8003 - returned {len(results)} papers")
+    
+check("MCP arXiv server", check_mcp_arxiv)
 
 def check_single_agent():
     from src.agents.base_agent import BaseAgent

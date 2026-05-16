@@ -3,6 +3,7 @@ import httpx
 SERVER_PORTS = {
     "vector_store": "http://localhost:8001",
     "web_search": "http://localhost:8002",
+    "arxiv": "http://localhost:8003",
 }
 
 class MCPClient:

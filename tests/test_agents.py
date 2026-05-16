@@ -185,18 +185,22 @@ def test_search_retries_on_failure():
     fake_docs = [
         {"title": "Solar", "content": "Solar is growing.", "source": "http://example.com"}
     ]
-    call_count = {"n": 0}
+    web_call_count = {"n": 0}
 
     def flaky_call_tool(server, tool, arguments):
-        call_count["n"] += 1
-        if call_count["n"] < 3:
-            raise Exception("rate limited")
-        return fake_docs
+        if server == "web_search":
+            web_call_count["n"] += 1
+            if web_call_count["n"] < 3:
+                raise Exception("rate limited")
+            return fake_docs
+        if server == "arxiv":
+            return []
+        return []
 
     with patch("src.mcp.client.mcp_client.MCPClient.call_tool", side_effect=flaky_call_tool):
         docs = ResearchAgent().search("solar energy", retries=3, delay=0)
     assert len(docs) == 1
-
+    
 
 def test_search_returns_empty_after_all_retries_fail():
     with patch("src.mcp.client.mcp_client.MCPClient.call_tool", side_effect=Exception("rate limited")):

@@ -212,8 +212,10 @@ def test_evaluate_passes_report_to_evaluator(mock_post):
          patch("src.evaluation.evaluate.SingleAgentBaseline") as mock_baseline, \
          patch("src.evaluation.evaluate.Evaluator") as mock_evaluator, \
          patch("src.evaluation.evaluate.shutil") as mock_shutil, \
-         patch("src.evaluation.evaluate.os.path.exists", return_value=True):
+         patch("src.evaluation.evaluate.os.path.exists", return_value=True), \
+         patch("src.evaluation.evaluate.httpx.post") as mock_httpx:
 
+        mock_httpx.return_value = MagicMock(status_code=200, json=lambda: {"result": []})
         mock_multi.return_value.run.return_value = {
             "report": FAKE_REPORT,
             "question": "test",
@@ -234,7 +236,6 @@ def test_evaluate_passes_report_to_evaluator(mock_post):
         assert FAKE_REPORT in calls[0][0]
         assert "baseline answer" in calls[1][0]
 
-
 @patch("src.agents.base_agent.requests.post")
 def test_evaluate_chroma_restored_on_failure(mock_post):
     mock_post.return_value = make_mock(FAKE_EVAL_RESPONSE)
@@ -243,8 +244,10 @@ def test_evaluate_chroma_restored_on_failure(mock_post):
          patch("src.evaluation.evaluate.SingleAgentBaseline"), \
          patch("src.evaluation.evaluate.Evaluator"), \
          patch("src.evaluation.evaluate.shutil") as mock_shutil, \
-         patch("src.evaluation.evaluate.os.path.exists", return_value=True):
+         patch("src.evaluation.evaluate.os.path.exists", return_value=True), \
+         patch("src.evaluation.evaluate.httpx.post") as mock_httpx:
 
+        mock_httpx.return_value = MagicMock(status_code=200, json=lambda: {"result": []})
         mock_multi.return_value.run.side_effect = Exception("pipeline failed")
 
         from src.evaluation import evaluate
@@ -254,4 +257,4 @@ def test_evaluate_chroma_restored_on_failure(mock_post):
             pass
 
         assert mock_shutil.copytree.called
-        assert mock_shutil.rmtree.called or True  
+        assert mock_shutil.rmtree.called or True

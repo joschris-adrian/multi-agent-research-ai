@@ -12,12 +12,25 @@ class ResearchAgent(BaseAgent):
     def search(self, query, max_results=3, retries=3, delay=2):
         for attempt in range(retries):
             try:
-                documents = self.mcp.call_tool("web_search", "search", {
+                web_documents = self.mcp.call_tool("web_search", "search", {
                     "query": query,
                     "max_results": max_results,
                     "retries": retries,
                     "delay": delay
                 })
+
+                try:
+                    arxiv_documents = self.mcp.call_tool("arxiv", "search", {
+                        "topic": query,
+                        "max_results": 3
+                    })
+                    print(f"[researcher] arxiv returned {len(arxiv_documents)} papers")
+                except Exception as e:
+                    print(f"[researcher] arxiv unavailable: {e}")
+                    arxiv_documents = []
+
+                documents = web_documents + arxiv_documents
+
                 if documents:
                     self.mcp.call_tool("vector_store", "add", {"documents": documents})
                     return documents

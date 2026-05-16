@@ -11,7 +11,7 @@ The system runs fully locally using Ollama, so no API keys or costs involved.
 When you ask a question, six agents run in sequence:
 
 1. **Planner** breaks the question into concrete research tasks
-2. **Researcher** calls the MCP web search server (DuckDuckGo) which chunks results into 200-character overlapping segments before returning them, then stores them via the MCP vector store server (ChromaDB)
+2. **Researcher** calls both the MCP web search server (DuckDuckGo) and the MCP arXiv server in parallel, merges results, chunks them into 200-character overlapping segments and stores them via the MCP vector store server (ChromaDB). The arXiv server retrieves the most recent academic papers sorted by submission date.
 3. **Analyst** retrieves semantically ranked chunks from the MCP vector store (RAG), filters by relevance score and injects the top results into the prompt alongside current research
 4. **Graph Builder** extracts entities (companies, trends, technologies) and stores relationships in Neo4j - runs at low temperature for consistent JSON output
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
@@ -33,7 +33,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | Agent pipeline  | Custom multi-agent architecture |
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
-| MCP servers     | FastAPI (vector store: 8001, web search: 8002) |
+| MCP servers     | FastAPI (vector store: 8001, web search: 8002, arXiv: 8003) |
 | Supercharge     | `scripts/supercharge.py` - bulk ingestion CLI   |
 | RAG             | ChromaDB semantic search with relevance scoring |
 | Knowledge graph | Neo4j                           |
@@ -74,7 +74,8 @@ multi-agent-research-ai/
 │   │   │   └── mcp_client.py          # HTTP client used by all agents
 │   │   └── servers/
 │   │       ├── vector_store_server.py # ChromaDB exposed as MCP server
-│   │       └── web_search_server.py   # DuckDuckGo exposed as MCP server
+│   │       ├── web_search_server.py   # DuckDuckGo exposed as MCP server
+│   │       └── arxiv_server.py        # arXiv API exposed as MCP server
 │   ├── models/
 │   │   └── peft_model.py       # LoRA adapter loader
 │   ├── graph/
@@ -132,7 +133,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-**Option 2 - API + UI (four terminals):**
+**Option 2 - API + UI (five terminals):**
 ```bash
 # terminal 1
 uvicorn api.main:app --reload
@@ -143,7 +144,10 @@ uvicorn src.mcp.servers.vector_store_server:app --port 8001 --reload
 # terminal 3
 uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
 
-# terminal 4
+# terminal 4 
+uvicorn src.mcp.servers.arxiv_server:app --port 8003 --reload
+
+# terminal 5
 streamlit run ui/streamlit_app.py
 ```
 
@@ -161,7 +165,7 @@ bash setup.sh  # first time only
 # requires MCP servers running on ports 8001 and 8002
 python scripts/supercharge.py --topic "renewable energy" --max_results 5
 ```
-This fetches documents across multiple query variations of the topic, chunks them and stores them directly in ChromaDB via the MCP vector store server. Run this before the main pipeline to give the analyst richer context from the first query.
+This fetches documents across multiple query variations of the topic, chunks them and stores them directly in ChromaDB via the MCP vector store server. Run this before the main pipeline to give the analyst richer context from the first query. The supercharge script also queries the arXiv MCP server for academic papers on the topic alongside web search results. Requires the arXiv server running on port 8003.
 
 ---
 
@@ -206,7 +210,7 @@ pytest tests/ -m "not finetuning" -n 2
 
 Tests use mocks so Ollama and Neo4j don't need to be running.
 
-To verify all components end to end (requires Ollama, uvicorn, and both MCP servers running):
+To verify all components end to end (requires Ollama, uvicorn, and all three MCP servers running):
 
 ```bash
 # terminal 1
@@ -222,6 +226,9 @@ uvicorn src.mcp.servers.vector_store_server:app --port 8001 --reload
 uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
 
 # terminal 5
+uvicorn src.mcp.servers.arxiv_server:app --port 8003 --reload
+
+# terminal 6
 python run_all.py
 ```
 
@@ -290,13 +297,14 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - ChromaDB relevance scores use cosine distance and chunks scoring below 0.3 are filtered out. On sparse or niche queries this may return no past context.
 - Supercharge mode deduplicates by source URL but not by content - if the same content is served from multiple URLs it may be stored multiple times.
 - The evaluation pipeline cannot delete `chroma_db` while the MCP vector store server is running on Windows due to file locking. Evaluation chunks are added to the live store and cleaned up by TTL eviction after 7 days. To reset immediately, stop the MCP vector store server and delete `chroma_db/` manually.
-
+- arXiv search sorts by submission date so results are recent but may not always be the most relevant to the query. A relevance-sorted fallback could be added as a future improvement.
+- arXiv paper summaries are truncated to 500 characters before chunking - full abstracts are longer and truncation may lose important context.
+- arXiv API requires a descriptive User-Agent header and HTTPS - HTTP requests return a 301 redirect with empty body. The server uses `follow_redirects=True` and `https://` to handle this.
+- arXiv API uses exact phrase matching with quoted terms (`ti:"topic" OR abs:"topic"`). Very short or generic topics may return fewer results than expected.
 ---
 
 ## Possible next steps
 
-- Increase evaluator max_tokens to ensure full scoring output is generated - current 500 token limit causes truncated evaluation responses
-- arXiv API MCP server for academic paper retrieval alongside web search
 - Add a reranker model on top of ChromaDB retrieval for more precise RAG
 - Make the relevance score threshold configurable via environment variable
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
