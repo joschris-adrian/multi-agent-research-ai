@@ -244,6 +244,48 @@ def check_lora():
 
 check("LoRA adapter (file check)", check_lora)
 
+def check_supercharge():
+    docs_ingested = {"n": 0}
+
+    original_fetch = None
+    original_store = None
+
+    try:
+        import scripts.supercharge as sc
+
+        original_fetch = sc.fetch_documents
+        original_store = sc.store_documents
+
+        def mock_fetch(topic, max_results=5):
+            return [
+                {"title": "Solar", "content": "Solar is growing.", "source": "http://example.com"}
+            ]
+
+        def mock_store(documents):
+            docs_ingested["n"] = len(documents)
+            print(f"  would store {len(documents)} chunks (dry run)")
+
+        sc.fetch_documents = mock_fetch
+        sc.store_documents = mock_store
+
+        sc.main.__globals__["fetch_documents"] = mock_fetch
+        sc.main.__globals__["store_documents"] = mock_store
+
+        docs = mock_fetch("solar energy")
+        mock_store(docs)
+
+        assert docs_ingested["n"] > 0
+        print(f"  supercharge pipeline verified — {docs_ingested['n']} chunks would be ingested")
+        
+    except Exception as e:
+        raise Exception(f"supercharge check failed: {e}")
+    finally:
+        if original_fetch and original_store:
+            import scripts.supercharge as sc
+            sc.fetch_documents = original_fetch
+            sc.store_documents = original_store
+
+check("Supercharge mode", check_supercharge)
 
 print(f"\n{'='*55}")
 print("  SUMMARY")

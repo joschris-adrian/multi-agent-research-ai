@@ -17,6 +17,8 @@ When you ask a question, six agents run in sequence:
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
 6. **Critic** reviews the report and flags anything missing or unclear
 
+Before running the pipeline on a topic, you can optionally pre-populate vector memory using supercharge mode - this gives the analyst richer past context to retrieve from on the first run.
+
 The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities via GraphQL.
 
 If the MCP web search server rate-limits or returns nothing, the researcher retries up to 3 times with a short delay before giving up and returning an empty result set rather than crashing the pipeline.
@@ -32,6 +34,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
 | MCP servers     | FastAPI (vector store: 8001, web search: 8002) |
+| Supercharge     | `scripts/supercharge.py` - bulk ingestion CLI   |
 | RAG             | ChromaDB semantic search with relevance scoring |
 | Knowledge graph | Neo4j                           |
 | GraphQL API     | Strawberry                      |
@@ -52,6 +55,8 @@ multi-agent-research-ai/
 ├── docker-compose.yml
 ├── Dockerfile.api
 ├── Dockerfile.ui
+├── scripts/
+│   └── supercharge.py      # Bulk ingest documents into ChromaDB without running pipeline
 │
 ├── src/
 │   ├── agents/
@@ -150,6 +155,13 @@ ChromaDB data is persisted to a Docker volume (`chroma_data`) so vector memory s
 docker-compose up --build
 bash setup.sh  # first time only
 ```
+
+**Supercharge mode - pre-populate vector memory before running the pipeline:**
+```bash
+# requires MCP servers running on ports 8001 and 8002
+python scripts/supercharge.py --topic "renewable energy" --max_results 5
+```
+This fetches documents across multiple query variations of the topic, chunks them and stores them directly in ChromaDB via the MCP vector store server. Run this before the main pipeline to give the analyst richer context from the first query.
 
 ---
 
@@ -276,12 +288,12 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - The LoRA fine-tuned writer uses opt-125m which is too small for high-quality report generation without significantly more training data.
 - Web search results are chunked into 200-character segments with 50-character overlap before storing in ChromaDB. DuckDuckGo snippets are short so each result typically produces 2-3 chunks.
 - ChromaDB relevance scores use cosine distance and chunks scoring below 0.3 are filtered out. On sparse or niche queries this may return no past context.
+- Supercharge mode deduplicates by source URL but not by content - if the same content is served from multiple URLs it may be stored multiple times.
 
 ---
 
 ## Possible next steps
 
-- **Supercharge mode** - a standalone script that bulk-ingests documents into ChromaDB via the MCP vector store server without running the full pipeline, allowing the vector memory to be pre-populated on a topic before any research query is made
 - **arXiv integration** - an additional MCP server wrapping the arXiv API to retrieve the most recent papers on a topic, giving the researcher access to academic sources alongside web search results
 - Add a reranker model on top of ChromaDB retrieval for more precise RAG
 - Make the relevance score threshold configurable via environment variable
