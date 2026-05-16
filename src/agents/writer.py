@@ -37,7 +37,7 @@ class WriterAgent(BaseAgent):
         - Trends: {trends}
         - Technologies: {technologies}
 
-        Where relevant, reference these entities directly in the report rather than inventing new ones.
+        Where relevant, reference these entities directly in the report only if they appear in the insights with supporting context. If an entity appears in the knowledge graph but has no supporting detail in the insights, do not include it.
 
         Insights:
         {insights}
@@ -57,7 +57,7 @@ class WriterAgent(BaseAgent):
         (bullet points)
 
         ## Key Players
-        (companies and organisations mentioned)
+        Only include companies or organisations that are explicitly mentioned in the insights above with specific context about what they do or have done. If no companies are mentioned with specific detail, write "No specific organisations identified in this research." Do not list company names without context and do not use placeholder text.
 
         ## Statistics
         (any numbers or data points found)

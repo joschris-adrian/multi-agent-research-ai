@@ -648,3 +648,57 @@ def test_vector_store_search_triggers_eviction():
         store = VectorStore()
         store.search("solar energy")
         mock_collection.get.assert_called_once()
+
+# Writer key players prompt constraints 
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_instructs_no_placeholder_companies(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing rapidly.", FAKE_ENTITIES)
+    assert "placeholder" in captured["prompt"].lower() or "no specific" in captured["prompt"].lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_requires_context_for_entities(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing rapidly.", FAKE_ENTITIES)
+    assert "supporting context" in captured["prompt"].lower() or "specific detail" in captured["prompt"].lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_instructs_fallback_when_no_orgs(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing rapidly.", {})
+    assert "no specific" in captured["prompt"].lower() or "not identified" in captured["prompt"].lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_warns_against_entities_without_detail(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing rapidly.", FAKE_ENTITIES)
+    assert "knowledge graph" in captured["prompt"].lower()
+    assert "supporting" in captured["prompt"].lower() or "context" in captured["prompt"].lower()
