@@ -113,6 +113,26 @@ def check_analyst():
 
 check("Analyst agent", check_analyst)
 
+def check_vector_store_ttl():
+    from src.memory.vector_store import VectorStore, TTL_SECONDS
+    import time
+
+    store = VectorStore()
+
+    # verify TTL constant is set
+    assert TTL_SECONDS > 0, "TTL_SECONDS must be positive"
+    print(f"  TTL set to {TTL_SECONDS // 86400} days ({TTL_SECONDS} seconds)")
+
+    # verify eviction runs without error
+    store.evict_expired()
+    print("  evict_expired() ran without error")
+
+    # verify chroma_db directory exists after init
+    assert os.path.exists("chroma_db"), "chroma_db directory not found — persistent storage not working"
+    print("  chroma_db directory exists on disk")
+
+check("Vector store TTL and persistence", check_vector_store_ttl)
+
 def check_graph_builder():
     from src.agents.graph_builder import GraphBuilderAgent
     agent = GraphBuilderAgent()

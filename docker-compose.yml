@@ -57,6 +57,8 @@ services:
       dockerfile: Dockerfile.api
     container_name: research_mcp_vector_store
     command: uvicorn src.mcp.servers.vector_store_server:app --host 0.0.0.0 --port 8001
+    volumes:
+      - chroma_data:/app/chroma_db
     ports:
       - "8001:8001"
     depends_on:
@@ -80,3 +82,4 @@ services:
 volumes:
   ollama_data:
   neo4j_data:
+  chroma_data:

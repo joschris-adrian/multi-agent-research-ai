@@ -81,3 +81,41 @@ def test_web_search_uses_max_results():
         client = get_ws_client()
         r = client.post("/web_search/search", json={"query": "solar", "max_results": 2})
         assert r.status_code == 200
+
+# TTL in vector store server 
+
+def test_vector_store_add_triggers_with_documents():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        client = get_vs_client()
+        docs = [{"title": "Solar", "content": "Growing.", "source": "http://example.com"}]
+        r = client.post("/vector_store/add", json={"documents": docs})
+        assert r.status_code == 200
+        mock_store.add_documents.assert_called_once()
+
+
+def test_vector_store_search_returns_scored_results():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = [
+            {"content": "Solar grew 40%.", "score": 0.85}
+        ]
+        client = get_vs_client()
+        r = client.post("/vector_store/search", json={"query": "solar", "top_k": 3})
+        results = r.json()["result"]
+        assert len(results) > 0
+        assert "score" in results[0]
+
+
+def test_vector_store_search_passes_top_k():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        client = get_vs_client()
+        client.post("/vector_store/search", json={"query": "solar", "top_k": 3})
+        mock_store.search.assert_called_once_with("solar", top_k=3)
+
+
+def test_vector_store_search_default_top_k():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        client = get_vs_client()
+        client.post("/vector_store/search", json={"query": "solar"})
+        mock_store.search.assert_called_once_with("solar", top_k=5)

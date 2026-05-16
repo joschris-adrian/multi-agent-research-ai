@@ -132,6 +132,12 @@ def test_compose_mcp_depends_on_ollama():
     assert "ollama" in vs.get("depends_on", [])
     assert "ollama" in ws.get("depends_on", [])
 
+def test_compose_chroma_volume_persists():
+    with open(COMPOSE_FILE) as f:
+        compose = yaml.safe_load(f)
+    mcp_vs = compose["services"].get("mcp_vector_store", {})
+    assert "volumes" in mcp_vs
+    assert "chroma_data" in compose.get("volumes", {})
 
 def test_compose_mcp_env_has_mcp_host():
     with open(COMPOSE_FILE) as f:

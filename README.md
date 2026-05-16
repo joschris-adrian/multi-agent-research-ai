@@ -145,6 +145,7 @@ streamlit run ui/streamlit_app.py
 UI at `http://localhost:8501`, API docs at `http://127.0.0.1:8000/docs`, GraphQL at `http://127.0.0.1:8000/graphql`.
 
 **Option 3 - Docker (includes Neo4j):**
+ChromaDB data is persisted to a Docker volume (`chroma_data`) so vector memory survives container restarts.
 ```bash
 docker-compose up --build
 bash setup.sh  # first time only
@@ -266,7 +267,7 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 ## Known limitations
 
 - `llama3.2` is a 3B model - outputs can be vague on complex topics. `mistral` or `llama3.1:8b` give better results.
-- ChromaDB runs in-memory by default, so vector memory resets on each restart.
+- ChromaDB persists to `./chroma_db` on disk. Chunks older than 7 days are automatically evicted on each search. Delete this folder to reset vector memory entirely. TTL is configurable via `TTL_SECONDS` in `vector_store.py`.
 - ChromaDB's ONNX embedding model takes 20-30 seconds to initialise on first write. The MCP vector store client uses a 60 second timeout to handle this - subsequent calls are fast.
 - DuckDuckGo occasionally rate-limits - the MCP web search server retries 3 times before returning empty.
 - MCP servers must be running separately for agents to access web search and vector memory. Vector store runs on port 8001, web search on port 8002. The analyst degrades gracefully if unavailable, but the researcher will return empty results.
@@ -280,16 +281,17 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 
 ## Possible next steps
 
+- **Supercharge mode** - a standalone script that bulk-ingests documents into ChromaDB via the MCP vector store server without running the full pipeline, allowing the vector memory to be pre-populated on a topic before any research query is made
+- **arXiv integration** - an additional MCP server wrapping the arXiv API to retrieve the most recent papers on a topic, giving the researcher access to academic sources alongside web search results
+- Add a reranker model on top of ChromaDB retrieval for more precise RAG
+- Make the relevance score threshold configurable via environment variable
+- Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
 - Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement
 - Add source citations directly in the final report
-- Persistent ChromaDB storage across sessions
 - Streaming responses via WebSockets
 - Visualise the knowledge graph in the Streamlit UI
 - API authentication for deployment
-- Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
-- Tune chunk size and overlap for longer web search results
-- Add a reranker model on top of ChromaDB retrieval for more precise RAG
-- Make the relevance score threshold configurable via environment variable
+- Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs - fits naturally into the existing LoRA training pipeline
 
 ---
 

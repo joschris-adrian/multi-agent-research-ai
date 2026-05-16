@@ -1,4 +1,5 @@
 import os
+import time
 import importlib
 from unittest.mock import patch, MagicMock
 from src.agents.planner import PlannerAgent
@@ -538,3 +539,112 @@ def test_system_prompt_instructs_not_to_guess(mock_post):
     agent.run("hello")
     system = mock_post.call_args[1]["json"]["system"]
     assert "guessing" in system.lower() or "unavailable" in system.lower()
+
+# TTL / vector store eviction 
+
+def test_vector_store_evicts_expired_documents():
+    from src.memory.vector_store import VectorStore, TTL_SECONDS
+    import time
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        old_timestamp = int(time.time()) - TTL_SECONDS - 100
+        mock_collection.get.return_value = {
+            "ids": ["doc_1", "doc_2"],
+            "metadatas": [
+                {"timestamp": old_timestamp},
+                {"timestamp": int(time.time())}
+            ]
+        }
+
+        store = VectorStore()
+        store.evict_expired()
+        mock_collection.delete.assert_called_once_with(ids=["doc_1"])
+
+
+def test_vector_store_does_not_evict_fresh_documents():
+    from src.memory.vector_store import VectorStore
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_collection.get.return_value = {
+            "ids": ["doc_1"],
+            "metadatas": [{"timestamp": int(time.time())}]
+        }
+
+        store = VectorStore()
+        store.evict_expired()
+        mock_collection.delete.assert_not_called()
+
+
+def test_vector_store_add_stores_timestamp():
+    from src.memory.vector_store import VectorStore
+    import time
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        store = VectorStore()
+        store.add_documents([{
+            "title": "Solar",
+            "content": "Solar is growing.",
+            "source": "http://example.com"
+        }])
+
+        call_kwargs = mock_collection.add.call_args[1]
+        assert "metadatas" in call_kwargs
+        assert "timestamp" in call_kwargs["metadatas"][0]
+        assert abs(call_kwargs["metadatas"][0]["timestamp"] - int(time.time())) < 5
+
+
+def test_vector_store_eviction_handles_missing_timestamp():
+    from src.memory.vector_store import VectorStore
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_collection.get.return_value = {
+            "ids": ["doc_1"],
+            "metadatas": [{}]
+        }
+
+        store = VectorStore()
+        store.evict_expired()
+        mock_collection.delete.assert_not_called()
+
+
+def test_vector_store_eviction_handles_failure_gracefully():
+    from src.memory.vector_store import VectorStore
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_collection.get.side_effect = Exception("db error")
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        store = VectorStore()
+        try:
+            store.evict_expired()
+        except Exception:
+            assert False, "evict_expired should not raise"
+
+
+def test_vector_store_search_triggers_eviction():
+    from src.memory.vector_store import VectorStore
+
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client:
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [[]], "distances": [[]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        store = VectorStore()
+        store.search("solar energy")
+        mock_collection.get.assert_called_once()
