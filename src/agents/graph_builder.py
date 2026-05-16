@@ -14,20 +14,26 @@ class GraphBuilderAgent(BaseAgent):
     def extract_entities(self, insights: str, topic: str) -> dict:
         prompt = f"""Read the following research insights about "{topic}" and extract entities.
 
-Return ONLY valid JSON in this exact format, nothing else:
-{{
-  "companies": ["Company A", "Company B"],
-  "trends": ["Trend A", "Trend B"],
-  "technologies": ["Tech A", "Tech B"],
-  "relationships": [
-    {{"source": "Company A", "target": "Tech A", "relation": "USES"}},
-    {{"source": "Trend A", "target": "Tech B", "relation": "DRIVES"}}
-  ]
-}}
+        Return ONLY valid JSON in this exact format, nothing else:
+        {{
+        "companies": ["Company A", "Company B"],
+        "trends": ["Trend A", "Trend B"],
+        "technologies": ["Tech A", "Tech B"],
+        "relationships": [
+            {{"source": "Company A", "target": "Tech A", "relation": "USES"}},
+            {{"source": "Trend A", "target": "Tech B", "relation": "DRIVES"}}
+        ]
+        }}
 
-Insights:
-{insights}
-"""
+        Insights:
+        {insights}
+
+        Rules:
+        - Return ONLY the JSON object, no explanation before or after
+        - Do NOT include markdown formatting or code fences
+        - Do NOT invent entities not mentioned in the insights
+        - Do NOT include generic terms like "industry" or "market" as entities
+        """
         raw = self.run(prompt)
 
         raw = raw.strip()

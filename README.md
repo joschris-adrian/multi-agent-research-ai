@@ -228,12 +228,12 @@ I ran the pipeline against a single-agent baseline on the query *"What are the l
 
 | Criteria     | Multi-agent | Single-agent |
 |--------------|-------------|--------------|
-| Relevance    | 9/10        | 9/10         |
-| Completeness | 8.5/10      | 8/10         |
-| Clarity      | 9/10        | 9/10         |
-| Accuracy     | 8/10        | 8.5/10       |
+| Relevance    | 9/10        | 8/10         |
+| Completeness | 8/10        | 9/10         |
+| Clarity      | 8/10        | 9/10         |
+| Accuracy     | 9/10        | 8.5/10       |
 
-The multi-agent output was better structured and more complete, benefiting from RAG-retrieved context ranked by relevance score. The single-agent scored slightly higher on accuracy due to citing sources inline.
+The multi-agent system produced a data-grounded report with real statistics retrieved from the web (585 GW of new capacity, 92.5% share of new electricity), structured using the enforced output schema. The single-agent produced a broader and more readable overview but drew entirely from training data with a December 2023 cutoff, with no live retrieval. The multi-agent scored higher on accuracy due to current retrieved data; the single-agent scored higher on completeness and clarity due to broader topic coverage and more natural prose. The enforced report schema in the writer constrained the multi-agent output to specific sections which limited narrative flow but improved consistency.
 
 ### Fine-tuning evaluation
 
@@ -249,6 +249,19 @@ I evaluated the LoRA fine-tuned writer (opt-125m, 125M params, 10 examples) agai
 The fine-tuned model underperforms because opt-125m is 24x smaller than llama3.2 and was trained on only 10 examples. The purpose of this component is to demonstrate the end-to-end fine-tuning workflow - data generation, LoRA training, adapter loading, and quantitative evaluation - rather than to beat a much larger model. A fair comparison would require fine-tuning a model of comparable size with significantly more training data.
 
 ---
+
+## Prompt engineering
+
+Each agent uses a tailored prompt strategy suited to its role in the pipeline:
+
+| Agent | Technique | Purpose |
+|---|---|---|
+| Planner | Few-shot example | Shows the model the expected task list format |
+| Analyst | Chain-of-thought | Forces step-by-step reasoning before extracting insights |
+| Writer | Output schema constraints | Enforces consistent report structure across runs |
+| Critic | Adversarial persona | Produces sharper, more actionable feedback |
+| Graph Builder | Negative prompting | Prevents hallucinated entities and generic terms in JSON |
+| All agents | Role-specific system prompt | Each agent is aware it is part of a multi-agent pipeline and should not guess when information is unavailable |
 
 ## Known limitations
 

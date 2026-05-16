@@ -14,6 +14,14 @@ class PlannerAgent(BaseAgent):
         prompt = f"""
         Break the following research question into a list of clear tasks.
 
+        Example:
+        Question: What are the latest trends in electric vehicles?
+        Tasks:
+        1. Search for recent EV market statistics and growth figures
+        2. Identify major EV manufacturers and their latest models
+        3. Research EV battery technology developments
+        4. Find government policies and incentives affecting EV adoption
+
         Question:
         {question}
 

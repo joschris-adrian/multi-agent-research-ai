@@ -32,23 +32,38 @@ class WriterAgent(BaseAgent):
 
         prompt = f"""Write a structured research report using the insights and entities below.
 
-Key entities extracted from the knowledge graph:
-- Companies: {companies}
-- Trends: {trends}
-- Technologies: {technologies}
+        Key entities extracted from the knowledge graph:
+        - Companies: {companies}
+        - Trends: {trends}
+        - Technologies: {technologies}
 
-Where relevant, reference these entities directly in the report rather than inventing new ones.
+        Where relevant, reference these entities directly in the report rather than inventing new ones.
 
-Insights:
-{insights}
+        Insights:
+        {insights}
 
-Format:
-Title
-Introduction
-Key Trends
-Industry Leaders
-Future Outlook
-Conclusion"""
+        Format:
+        Title
+        Introduction
+        Key Trends
+        Industry Leaders
+        Future Outlook
+        Conclusion
+        Your report must follow this exact structure:
+        ## Summary
+        (2-3 sentence overview)
+
+        ## Key Trends
+        (bullet points)
+
+        ## Key Players
+        (companies and organisations mentioned)
+
+        ## Statistics
+        (any numbers or data points found)
+
+        ## Conclusion
+        (1-2 sentences)"""
 
         if self._finetuned:
             return self._finetuned.generate(prompt)

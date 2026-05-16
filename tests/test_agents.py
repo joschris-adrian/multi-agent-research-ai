@@ -352,3 +352,189 @@ def test_analyst_prompt_uses_rag_framing():
             docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
             AnalystAgent().analyze(docs, "solar energy")
             assert "retrieved from memory" in captured["prompt"].lower()
+
+# Prompt engineering - Planner 
+
+@patch("src.agents.base_agent.requests.post")
+def test_planner_prompt_includes_few_shot_example(mock_post):
+    mock_post.return_value = make_mock("1. Search trends\n2. Analyse data")
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("1. Search trends")
+
+    mock_post.side_effect = capture
+    PlannerAgent().plan("What are AI trends?")
+    assert "electric vehicles" in captured["prompt"].lower()
+    assert "1." in captured["prompt"]
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_planner_prompt_asks_for_numbered_list(mock_post):
+    mock_post.return_value = make_mock("1. Search trends")
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("1. Search trends")
+
+    mock_post.side_effect = capture
+    PlannerAgent().plan("What are AI trends?")
+    assert "numbered" in captured["prompt"].lower()
+
+
+# Prompt engineering - Analyst 
+
+@patch("src.agents.base_agent.requests.post")
+def test_analyst_prompt_includes_chain_of_thought(mock_post):
+    mock_post.return_value = make_mock("Solar growing 20% YoY")
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("Solar growing 20% YoY")
+
+    mock_post.side_effect = capture
+    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=[]):
+        docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
+        AnalystAgent().analyze(docs, "solar energy")
+    assert "step by step" in captured["prompt"].lower()
+    assert "1." in captured["prompt"]
+    assert "2." in captured["prompt"]
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_analyst_prompt_includes_current_research(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("insights")
+
+    mock_post.side_effect = capture
+    with patch("src.mcp.client.mcp_client.MCPClient.call_tool", return_value=[]):
+        docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
+        AnalystAgent().analyze(docs, "solar energy")
+    assert "Solar is booming" in captured["prompt"]
+
+
+# Prompt engineering - Writer 
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_includes_output_schema(mock_post):
+    mock_post.return_value = make_mock("# Report")
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing.", FAKE_ENTITIES)
+    assert "## Summary" in captured["prompt"]
+    assert "## Key Trends" in captured["prompt"]
+    assert "## Key Players" in captured["prompt"]
+    assert "## Statistics" in captured["prompt"]
+    assert "## Conclusion" in captured["prompt"]
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_writer_prompt_references_knowledge_graph(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("# Report")
+
+    mock_post.side_effect = capture
+    WriterAgent().write_report("Solar is growing.", FAKE_ENTITIES)
+    assert "knowledge graph" in captured["prompt"].lower()
+
+
+# Prompt engineering - Critic 
+
+@patch("src.agents.base_agent.requests.post")
+def test_critic_prompt_is_adversarial(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("Looks good.")
+
+    mock_post.side_effect = capture
+    CriticAgent().review("Sample report")
+    assert "adversarial" in captured["prompt"].lower() or "weaknesses" in captured["prompt"].lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_critic_prompt_checks_for_unsupported_claims(mock_post):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock("Looks good.")
+
+    mock_post.side_effect = capture
+    CriticAgent().review("Sample report")
+    assert "evidence" in captured["prompt"].lower()
+    assert "sources" in captured["prompt"].lower()
+
+
+# Prompt engineering - Graph Builder 
+
+@patch("src.agents.base_agent.requests.post")
+def test_graph_builder_prompt_includes_negative_rules(mock_post):
+    fake_entities = {
+        "companies": ["Tesla"],
+        "trends": [],
+        "technologies": [],
+        "relationships": []
+    }
+    import json
+    mock_post.return_value = make_mock(json.dumps(fake_entities))
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock(json.dumps(fake_entities))
+
+    mock_post.side_effect = capture
+    GraphBuilderAgent().extract_entities("Tesla uses batteries.", "EVs")
+    assert "do not invent" in captured["prompt"].lower() or "do not include" in captured["prompt"].lower()
+    assert "json" in captured["prompt"].lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_graph_builder_prompt_forbids_generic_terms(mock_post):
+    fake_entities = {"companies": [], "trends": [], "technologies": [], "relationships": []}
+    import json
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = kwargs["json"]["prompt"]
+        return make_mock(json.dumps(fake_entities))
+
+    mock_post.side_effect = capture
+    GraphBuilderAgent().extract_entities("Some insights.", "topic")
+    assert "industry" in captured["prompt"].lower() or "generic" in captured["prompt"].lower()
+
+
+# System prompt 
+
+@patch("src.agents.base_agent.requests.post")
+def test_system_prompt_includes_pipeline_context(mock_post):
+    mock_post.return_value = make_mock("ok")
+    agent = BaseAgent(role="Tester", goal="Test")
+    agent.run("hello")
+    system = mock_post.call_args[1]["json"]["system"]
+    assert "pipeline" in system.lower()
+
+
+@patch("src.agents.base_agent.requests.post")
+def test_system_prompt_instructs_not_to_guess(mock_post):
+    mock_post.return_value = make_mock("ok")
+    agent = BaseAgent(role="Tester", goal="Test")
+    agent.run("hello")
+    system = mock_post.call_args[1]["json"]["system"]
+    assert "guessing" in system.lower() or "unavailable" in system.lower()

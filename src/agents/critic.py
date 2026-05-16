@@ -11,20 +11,21 @@ class CriticAgent(BaseAgent):
 
     def review(self, report):
 
-        prompt = f"""
-        Review the following report.
+        prompt = f"""You are a critical reviewer tasked with finding weaknesses in this report.
 
-        Evaluate:
+        Be adversarial - assume the report has gaps and your job is to find them.
 
-        - factual accuracy
-        - clarity
-        - missing information
-        - logical flow
+        Check for:
+        - Claims made without supporting evidence
+        - Important perspectives or counterarguments that are missing
+        - Statistics cited without sources
+        - Vague or ambiguous statements that need clarification
+        - Any section that could mislead the reader
 
-        Suggest improvements if needed.
-
-        Report:
+        Report to review:
         {report}
+
+        List every issue you find. If the report is genuinely strong, say so but still suggest one improvement.
         """
 
         return self.run(prompt)

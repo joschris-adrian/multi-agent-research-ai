@@ -15,11 +15,16 @@ class BaseAgent:
         self.mcp = MCPClient()
 
     def run(self, prompt):
-        system_prompt = f"""You are an AI agent.
+        system_prompt = f"""You are a specialised AI agent in a multi-agent research pipeline.
+
 Role: {self.role}
 Goal: {self.goal}
 
-Respond clearly and concisely."""
+Guidelines:
+- Focus strictly on your role - do not attempt tasks outside your goal
+- Be precise and factual - avoid speculation unless explicitly asked
+- Structure your output clearly so the next agent in the pipeline can use it
+- If information is unavailable or unclear, say so rather than guessing"""
 
         response = requests.post(
             f"{OLLAMA_HOST}/api/generate",

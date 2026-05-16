@@ -27,16 +27,21 @@ class AnalystAgent(BaseAgent):
         )
 
         prompt = f"""Use the research below to extract insights.
+        Think through this step by step:
+        1. First identify the main themes across all sources
+        2. Then look for supporting statistics or data points
+        3. Then identify key organisations or companies involved
+        4. Finally summarise the key trends
 
-Current research:
-{current}
+        Current research:
+        {current}
 
-Relevant context retrieved from memory (ranked by relevance):
-{past}
+        Relevant context retrieved from memory (ranked by relevance):
+        {past}
 
-Pull out:
-- key trends
-- any statistics worth noting
-- major companies or organisations mentioned
-"""
+        Pull out:
+        - key trends
+        - any statistics worth noting
+        - major companies or organisations mentioned
+        """
         return self.run(prompt)
