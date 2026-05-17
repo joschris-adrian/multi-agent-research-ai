@@ -17,6 +17,8 @@ When you ask a question, six agents run in sequence:
 5. **Writer** turns those insights into a structured report - runs at slightly higher temperature for more varied prose
 6. **Critic** reviews the report and flags anything missing or unclear
 
+An alternative A2A pipeline (`src/a2a/a2a_pipeline.py`) exposes each agent as an independent HTTP endpoint on port 8004. Unlike the fixed sequential pipeline, the A2A coordinator can dynamically re-invoke agents - requesting additional research if analyst insights are insufficient, or asking the writer to revise the report if the critic flags major issues.
+
 Before running the pipeline on a topic, you can optionally pre-populate vector memory using supercharge mode - this gives the analyst richer past context to retrieve from on the first run.
 
 The vector memory means the system gets slightly smarter over repeated queries on similar topics. The knowledge graph lets you query relationships between entities via GraphQL.
@@ -34,6 +36,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
 | MCP servers     | FastAPI (vector store: 8001, web search: 8002, arXiv: 8003) |
+| A2A             | Agent-to-Agent protocol (port 8004)             |
 | Supercharge     | `scripts/supercharge.py` - bulk ingestion CLI   |
 | RAG             | ChromaDB semantic search with relevance scoring |
 | Knowledge graph | Neo4j                           |
@@ -67,6 +70,10 @@ multi-agent-research-ai/
 │   │   ├── graph_builder.py    # Extracts entities for Neo4j
 │   │   ├── writer.py           # Ollama or fine-tuned LoRA model
 │   │   └── critic.py
+│   ├── a2a/
+│   │   ├── agent_server.py     # Exposes each agent as FastAPI endpoint
+│   │   ├── a2a_client.py       # HTTP client for agent-to-agent calls
+│   │   └── a2a_pipeline.py     # Dynamic pipeline with re-research and re-write
 │   ├── memory/
 │   │   └── vector_store.py     # ChromaDB wrapper
 │   ├── mcp/
@@ -160,12 +167,31 @@ docker-compose up --build
 bash setup.sh  # first time only
 ```
 
+**Option 4 - A2A pipeline CLI:**
+```bash
+# start A2A agent server in addition to other terminals
+uvicorn src.a2a.agent_server:app --port 8004 --reload
+
+# interactive
+python run_a2a.py
+
+# direct
+python run_a2a.py --question "What are the latest trends in AI Agents?"
+```
+The A2A pipeline dynamically re-invokes agents when insights are insufficient or the critic flags issues, unlike the fixed sequential pipeline.
+
 **Supercharge mode - pre-populate vector memory before running the pipeline:**
 ```bash
 # requires MCP servers running on ports 8001 and 8002
 python scripts/supercharge.py --topic "renewable energy" --max_results 5
 ```
 This fetches documents across multiple query variations of the topic, chunks them and stores them directly in ChromaDB via the MCP vector store server. Run this before the main pipeline to give the analyst richer context from the first query. The supercharge script also queries the arXiv MCP server for academic papers on the topic alongside web search results. Requires the arXiv server running on port 8003.
+
+**To run with A2A pipeline (additional terminal):**
+```bash
+uvicorn src.a2a.agent_server:app --port 8004 --reload
+```
+Then use `A2AResearchSystem` instead of `MultiAgentResearchSystem` in `main.py`.
 
 ---
 
@@ -301,6 +327,10 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - arXiv paper summaries are truncated to 500 characters before chunking - full abstracts are longer and truncation may lose important context.
 - arXiv API requires a descriptive User-Agent header and HTTPS - HTTP requests return a 301 redirect with empty body. The server uses `follow_redirects=True` and `https://` to handle this.
 - arXiv API uses exact phrase matching with quoted terms (`ti:"topic" OR abs:"topic"`). Very short or generic topics may return fewer results than expected.
+- The A2A pipeline calls agents via HTTP on port 8004 — each agent call adds network overhead compared to the direct sequential pipeline. For simple queries the fixed pipeline in `agent_pipeline.py` will be faster.
+- The A2A critic re-write is triggered by keyword matching ("missing", "incorrect", "inaccurate", "unclear", "vague") in the feedback text. Substantive critic feedback that doesn't contain these words will not trigger a revision.
+- The A2A analyst re-research is triggered by weak phrase detection ("no information", "insufficient" etc.) in the insights. If the analyst produces plausible-sounding but shallow insights without these phrases, re-research will not be triggered.
+- The A2A pipeline requires all six terminals running (Ollama, three MCP servers, A2A agent server, and optionally the FastAPI main API) — more moving parts than the sequential pipeline which only needs Ollama and the three MCP servers.
 ---
 
 ## Possible next steps
@@ -313,7 +343,17 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - Streaming responses via WebSockets
 - Visualise the knowledge graph in the Streamlit UI
 - API authentication for deployment
-- Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs - fits naturally into the existing LoRA training pipeline
+- Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs — fits naturally into the existing LoRA training pipeline
+- Multilingual support — detect document language before chunking, translate non-English content before embedding to improve retrieval quality across languages
+- Hallucination reduction — add a fact-checking step between the analyst and writer that cross-references claims against retrieved source documents before the report is written
+- Error recovery — implement checkpoint saving so a failed pipeline run can resume from the last successful agent rather than restarting from the planner
+- Monitoring and observability — add structured logging per agent with timestamps, token counts and latency metrics, exportable to a dashboard
+- PII detection and filtering — add a pre-storage filter in the MCP vector store server that detects and redacts personally identifiable information before chunks are written to ChromaDB
+- Prompt injection detection — add input sanitisation in the researcher and analyst that detects and rejects retrieved content containing instruction-like patterns before prompt injection
+- Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL
+- Advanced chunking strategies — replace fixed-size character chunking with semantic chunking on sentence or paragraph boundaries, with larger chunk sizes for arXiv abstracts which are denser than web snippets
+- Evaluation framework expansion — extend the LLM-as-judge evaluator to score RAG retrieval quality separately from report quality, and add reproducibility metrics by measuring score variance across repeated runs
+- Traceability and compliance — attach source URLs and retrieval timestamps to every claim in the final report, and maintain an audit log of which chunks were retrieved and injected into each agent prompt per run
 ---
 
 ## License

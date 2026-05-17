@@ -327,7 +327,7 @@ def test_analyst_passes_top_k_to_mcp():
             assert search_calls[0][0][2].get("top_k") == 5
 
 
-def test_analyst_prompt_includes_relevance_score():
+def test_analyst_prompt_does_not_include_relevance_score():
     scored_docs = [{"content": "Solar grew 40%.", "score": 0.85}]
     captured = {}
 
@@ -340,9 +340,8 @@ def test_analyst_prompt_includes_relevance_score():
             mock_post.side_effect = capture
             docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
             AnalystAgent().analyze(docs, "solar energy")
-            assert "0.85" in captured["prompt"]
-            assert "relevance" in captured["prompt"].lower()
-
+            assert "0.85" not in captured["prompt"]
+            assert "Solar grew 40%" in captured["prompt"]
 
 def test_analyst_prompt_uses_rag_framing():
     captured = {}

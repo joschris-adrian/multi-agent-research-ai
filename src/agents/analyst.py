@@ -21,8 +21,8 @@ class AnalystAgent(BaseAgent):
             current += f"Title: {doc['title']}\nContent: {doc['content']}\n\n"
 
         past = "\n".join(
-            f"[relevance: {doc['score']:.2f}] {doc['content']}" if isinstance(doc, dict) and "score" in doc
-            else (doc["content"] if isinstance(doc, dict) else doc)
+            doc["content"] if isinstance(doc, dict)
+            else doc
             for doc in past_docs
         )
 

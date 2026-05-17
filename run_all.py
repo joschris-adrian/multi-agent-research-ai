@@ -84,6 +84,23 @@ def check_mcp_arxiv():
     
 check("MCP arXiv server", check_mcp_arxiv)
 
+def check_a2a_server():
+    try:
+        r = requests.post(
+            "http://localhost:8004/agent/planner",
+            json={"question": "What are AI trends?"},
+            timeout=120
+        )
+        assert r.status_code == 200
+        assert "result" in r.json()
+        print("  A2A server reachable on port 8004")
+    except requests.exceptions.ConnectionError:
+        print("  A2A server not running — start with:")
+        print("  uvicorn src.a2a.agent_server:app --port 8004 --reload")
+        raise
+
+check("A2A agent server", check_a2a_server)
+
 def check_single_agent():
     from src.agents.base_agent import BaseAgent
     agent = BaseAgent(role="Tester", goal="Return short answers")

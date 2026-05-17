@@ -16,12 +16,12 @@ class GraphBuilderAgent(BaseAgent):
 
         Return ONLY valid JSON in this exact format, nothing else:
         {{
-        "companies": ["Company A", "Company B"],
-        "trends": ["Trend A", "Trend B"],
-        "technologies": ["Tech A", "Tech B"],
+        "companies": ["<real company name>", "<real company name>"],
+        "trends": ["<real trend>", "<real trend>"],
+        "technologies": ["<real technology>", "<real technology>"],
         "relationships": [
-            {{"source": "Company A", "target": "Tech A", "relation": "USES"}},
-            {{"source": "Trend A", "target": "Tech B", "relation": "DRIVES"}}
+            {{"source": "<real entity>", "target": "<real entity>", "relation": "USES"}},
+            {{"source": "<real entity>", "target": "<real entity>", "relation": "DRIVES"}}
         ]
         }}
 
