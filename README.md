@@ -38,7 +38,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | MCP servers     | FastAPI (vector store: 8001, web search: 8002, arXiv: 8003) |
 | A2A             | Agent-to-Agent protocol (port 8004)             |
 | Supercharge     | `scripts/supercharge.py` - bulk ingestion CLI   |
-| RAG             | ChromaDB semantic search with relevance scoring |
+| RAG             | ChromaDB semantic search + cross-encoder reranker (ms-marco-MiniLM-L-6-v2) |
 | Knowledge graph | Neo4j                           |
 | GraphQL API     | Strawberry                      |
 | Backend         | FastAPI                         |
@@ -236,7 +236,7 @@ pytest tests/ -m "not finetuning" -n 2
 
 Tests use mocks so Ollama and Neo4j don't need to be running.
 
-To verify all components end to end (requires Ollama, uvicorn, and all three MCP servers running):
+To verify all components end to end (requires Ollama, uvicorn, all three MCP servers and the A2A server running):
 
 ```bash
 # terminal 1
@@ -255,6 +255,9 @@ uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
 uvicorn src.mcp.servers.arxiv_server:app --port 8003 --reload
 
 # terminal 6
+uvicorn src.a2a.agent_server:app --port 8004 --reload
+
+# terminal 7
 python run_all.py
 ```
 
@@ -309,6 +312,34 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 | Graph Builder | Negative prompting | Prevents hallucinated entities and generic terms in JSON |
 | All agents | Role-specific system prompt | Each agent is aware it is part of a multi-agent pipeline and should not guess when information is unavailable |
 
+## Reranker
+
+The system uses a two-stage retrieval pipeline for more precise RAG:
+
+**Stage 1 — Bi-encoder retrieval (ChromaDB)**
+ChromaDB uses the ONNX embedding model to convert the query and all stored chunks into dense vectors and retrieves the top candidates by cosine similarity. This is fast but imprecise — cosine similarity measures general semantic closeness, not whether a chunk actually answers the query.
+
+**Stage 2 — Cross-encoder reranking (ms-marco-MiniLM-L-6-v2)**
+The retrieved candidates are passed to a cross-encoder reranker which scores each (query, chunk) pair together rather than independently. This is slower but significantly more precise — the cross-encoder reads both the query and the chunk simultaneously and scores how well the chunk answers the specific query, not just how similar they are in embedding space.
+
+**Why this is better:**
+A bi-encoder might rank a chunk highly because it contains many of the same words as the query, even if it doesn't answer the question. The cross-encoder re-orders the candidates by actual relevance to the query, so the analyst receives the most directly useful chunks rather than just the most similar ones.
+
+**Example:**
+For the query "what is the market share of solar energy in 2024?", cosine similarity might rank a general chunk about solar energy trends highly because it shares many tokens. The reranker would demote that chunk and promote a specific chunk containing "solar energy accounted for 36% of new power capacity in 2024" because it directly answers the question.
+
+**Fallback:**
+If the reranker model is unavailable (no internet on first run, or insufficient memory), the system falls back to cosine similarity automatically with no change to the pipeline.
+
+**Debug endpoint:**
+To compare cosine-only vs reranked results on any query:
+```bash
+curl -X POST http://localhost:8001/vector_store/search/compare \
+  -H "Content-Type: application/json" \
+  -d '{"query": "solar energy market share 2024", "top_k": 5}'
+```
+This returns both orderings side by side showing rerank scores vs cosine scores.
+
 ## Known limitations
 
 - `llama3.2` is a 3B model - outputs can be vague on complex topics. `mistral` or `llama3.1:8b` give better results.
@@ -331,11 +362,11 @@ Each agent uses a tailored prompt strategy suited to its role in the pipeline:
 - The A2A critic re-write is triggered by keyword matching ("missing", "incorrect", "inaccurate", "unclear", "vague") in the feedback text. Substantive critic feedback that doesn't contain these words will not trigger a revision.
 - The A2A analyst re-research is triggered by weak phrase detection ("no information", "insufficient" etc.) in the insights. If the analyst produces plausible-sounding but shallow insights without these phrases, re-research will not be triggered.
 - The A2A pipeline requires all six terminals running (Ollama, three MCP servers, A2A agent server, and optionally the FastAPI main API) — more moving parts than the sequential pipeline which only needs Ollama and the three MCP servers.
+- The reranker model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) loads on first use and adds ~100-200ms per search on CPU. If unavailable, the system falls back to cosine similarity scoring automatically.
 ---
 
 ## Possible next steps
 
-- Add a reranker model on top of ChromaDB retrieval for more precise RAG
 - Make the relevance score threshold configurable via environment variable
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
 - Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement

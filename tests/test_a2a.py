@@ -210,6 +210,12 @@ def test_a2a_client_handles_error_in_response():
         result = client.call_agent("planner", {"question": "AI trends?"})
         assert result == ""
 
+def test_a2a_health_endpoint_returns_200():
+    from src.a2a.agent_server import app
+    client = TestClient(app)
+    r = client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
 
 # A2A pipeline 
 

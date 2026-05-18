@@ -705,3 +705,135 @@ def test_writer_prompt_warns_against_entities_without_detail(mock_post):
     WriterAgent().write_report("Solar is growing rapidly.", FAKE_ENTITIES)
     assert "knowledge graph" in captured["prompt"].lower()
     assert "supporting" in captured["prompt"].lower() or "context" in captured["prompt"].lower()
+
+# Reranker 
+
+def test_vector_store_loads_reranker():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker:
+        mock_client.return_value.get_or_create_collection.return_value = MagicMock()
+        mock_reranker.return_value = MagicMock()
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        assert store.reranker is not None
+
+
+def test_vector_store_falls_back_when_reranker_unavailable():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder", side_effect=Exception("model unavailable")):
+        mock_client.return_value.get_or_create_collection.return_value = MagicMock()
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        assert store.reranker is None
+
+
+def test_vector_store_search_uses_reranker_when_available():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker_class:
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [["Solar is growing.", "Wind is expanding."]],
+            "distances": [[0.1, 0.2]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_reranker = MagicMock()
+        mock_reranker.predict.return_value = [0.9, 0.4]
+        mock_reranker_class.return_value = mock_reranker
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        results = store.search("solar energy", top_k=2)
+
+        mock_reranker.predict.assert_called_once()
+        assert len(results) > 0
+
+
+def test_vector_store_search_sorts_by_rerank_score():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker_class:
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [["doc A", "doc B"]],
+            "distances": [[0.1, 0.1]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_reranker = MagicMock()
+        mock_reranker.predict.return_value = [0.3, 0.9]
+        mock_reranker_class.return_value = mock_reranker
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        results = store.search("solar energy", top_k=2)
+
+        assert results[0]["content"] == "doc B"
+        assert results[0]["rerank_score"] > results[1]["rerank_score"]
+
+
+def test_vector_store_search_falls_back_to_cosine_without_reranker():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder", side_effect=Exception("unavailable")):
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [["doc A", "doc B"]],
+            "distances": [[0.2, 0.1]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        results = store.search("solar energy", top_k=2)
+
+        assert results[0]["content"] == "doc B"
+        assert "rerank_score" not in results[0]
+
+
+def test_vector_store_search_fetches_more_candidates_for_reranker():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker_class:
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [[]], "distances": [[]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+        mock_reranker_class.return_value = MagicMock()
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        store.search("solar energy", top_k=5)
+
+        call_kwargs = mock_collection.query.call_args[1]
+        assert call_kwargs["n_results"] == 15
+
+
+def test_vector_store_search_returns_top_k_after_reranking():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker_class:
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [["doc A", "doc B", "doc C", "doc D", "doc E",
+                          "doc F", "doc G", "doc H", "doc I", "doc J"]],
+            "distances": [[0.1] * 10]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_reranker = MagicMock()
+        mock_reranker.predict.return_value = [0.9, 0.8, 0.7, 0.6, 0.5,
+                                               0.4, 0.3, 0.2, 0.1, 0.05]
+        mock_reranker_class.return_value = mock_reranker
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+        results = store.search("solar energy", top_k=3)
+        assert len(results) == 3

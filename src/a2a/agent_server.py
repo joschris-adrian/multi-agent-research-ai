@@ -23,6 +23,10 @@ writer = WriterAgent()
 critic = CriticAgent()
 graph_builder = GraphBuilderAgent()
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 
 class PlanRequest(BaseModel):
     question: str

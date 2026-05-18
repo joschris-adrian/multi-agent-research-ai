@@ -119,3 +119,42 @@ def test_vector_store_search_default_top_k():
         client = get_vs_client()
         client.post("/vector_store/search", json={"query": "solar"})
         mock_store.search.assert_called_once_with("solar", top_k=5)
+
+# reranked flag in vector store server 
+
+def test_vector_store_search_returns_reranked_flag():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = [
+            {"content": "Solar grew 40%.", "score": 0.85}
+        ]
+        mock_store.reranker = MagicMock()
+        client = get_vs_client()
+        r = client.post("/vector_store/search", json={"query": "solar"})
+        assert "reranked" in r.json()
+
+
+def test_vector_store_search_reranked_true_when_reranker_available():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        mock_store.reranker = MagicMock()
+        client = get_vs_client()
+        r = client.post("/vector_store/search", json={"query": "solar"})
+        assert r.json()["reranked"] is True
+
+
+def test_vector_store_search_reranked_false_when_reranker_unavailable():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        mock_store.reranker = None
+        client = get_vs_client()
+        r = client.post("/vector_store/search", json={"query": "solar"})
+        assert r.json()["reranked"] is False
+
+
+def test_vector_store_search_accepts_rerank_flag():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        mock_store.reranker = None
+        client = get_vs_client()
+        r = client.post("/vector_store/search", json={"query": "solar", "rerank": False})
+        assert r.status_code == 200

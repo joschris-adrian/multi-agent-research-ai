@@ -9,12 +9,12 @@ store = VectorStore()
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+    rerank: bool = True
 
 @app.post("/vector_store/search")
 def search(request: SearchRequest):
     results = store.search(request.query, top_k=request.top_k)
-    return {"result": results}
-
+    return {"result": results, "reranked": store.reranker is not None}
 
 class AddRequest(BaseModel):
     documents: List[Dict[str, Any]]
@@ -23,3 +23,26 @@ class AddRequest(BaseModel):
 def add(request: AddRequest):
     store.add_documents(request.documents)
     return {"result": "ok"}
+
+@app.post("/vector_store/search/compare")
+def search_compare(request: SearchRequest):
+    # without reranker — cosine only
+    original_reranker = store.reranker
+    store.reranker = None
+    cosine_results = store.search(request.query, top_k=request.top_k)
+    store.reranker = original_reranker
+
+    # with reranker
+    reranked_results = store.search(request.query, top_k=request.top_k)
+
+    return {
+        "query": request.query,
+        "cosine_only": [
+            {"content": r["content"][:100], "score": round(r["score"], 3)}
+            for r in cosine_results
+        ],
+        "reranked": [
+            {"content": r["content"][:100], "rerank_score": round(r.get("rerank_score", 0), 3), "score": round(r["score"], 3)}
+            for r in reranked_results
+        ]
+    }

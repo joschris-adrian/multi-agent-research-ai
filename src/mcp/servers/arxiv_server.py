@@ -50,7 +50,7 @@ def search(request: ArxivRequest):
         print(f"[arxiv_server] requesting: {url}")
         response = httpx.get(
             url,
-            timeout=15.0,
+            timeout=30.0,
             follow_redirects=True,
             headers={"User-Agent": "multi-agent-research-assistant/1.0 (research project; python/httpx)"}
         )
