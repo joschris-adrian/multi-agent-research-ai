@@ -2,16 +2,19 @@ from fastapi import FastAPI
 from src.memory.vector_store import VectorStore
 from pydantic import BaseModel
 from typing import List, Dict, Any
+from mcp.server.fastmcp import FastMCP
+from mcp.types import TextContent, CallToolResult
 
 app = FastAPI()
 store = VectorStore()
+mcp = FastMCP("vector-store")
 
 @app.on_event("startup")
 async def startup():
     print("[vector_store_server] pre-warming reranker...")
     store.search("warmup", top_k=1)
     print("[vector_store_server] reranker ready")
-    
+
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
@@ -32,15 +35,11 @@ def add(request: AddRequest):
 
 @app.post("/vector_store/search/compare")
 def search_compare(request: SearchRequest):
-    # without reranker — cosine only
     original_reranker = store.reranker
     store.reranker = None
     cosine_results = store.search(request.query, top_k=request.top_k)
     store.reranker = original_reranker
-
-    # with reranker
     reranked_results = store.search(request.query, top_k=request.top_k)
-
     return {
         "query": request.query,
         "cosine_only": [
@@ -52,3 +51,23 @@ def search_compare(request: SearchRequest):
             for r in reranked_results
         ]
     }
+
+@mcp.tool()
+def mcp_search(query: str, top_k: int = 5) -> str:
+    """Semantically search stored document chunks using ChromaDB with optional cross-encoder reranking."""
+    try:
+        results = store.search(query, top_k=top_k)
+        return str(results)
+    except Exception as e:
+        raise ValueError(str(e))
+
+@mcp.tool()
+def mcp_add(documents: list) -> str:
+    """Add document chunks to the ChromaDB vector store."""
+    try:
+        store.add_documents(documents)
+        return "ok"
+    except Exception as e:
+        raise ValueError(str(e))
+    
+app.mount("/mcp", mcp.sse_app())
