@@ -8,3 +8,4 @@ models/lora-adapter/
 *.zip
 .DS_Store
 chroma_db/
+.server_pids.json

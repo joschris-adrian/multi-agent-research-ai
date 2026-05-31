@@ -140,7 +140,21 @@ pip install -r requirements.txt
 python main.py
 ```
 
-**Option 2 - API + UI (five terminals):**
+**Option 2a - Single command startup:**
+```bash
+# start all servers (Ollama, MCP servers, FastAPI, Streamlit)
+python start.py
+
+# start including A2A pipeline server
+python start.py --a2a
+
+# stop all servers started by start.py
+python start.py --stop
+```
+Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop.
+
+
+**Option 2b - API + UI (five terminals):**
 ```bash
 # terminal 1
 uvicorn api.main:app --reload
@@ -340,6 +354,32 @@ curl -X POST http://localhost:8001/vector_store/search/compare \
 ```
 This returns both orderings side by side showing rerank scores vs cosine scores.
 
+## Streaming (Server-Sent Events)
+
+The `/research/stream` endpoint streams real-time progress updates from each agent as they complete, rather than blocking until the full pipeline finishes.
+
+**How it works:**
+The FastAPI endpoint runs each agent sequentially using `run_in_executor` to avoid blocking the async event loop. After each agent completes it yields a JSON SSE event with the agent name, status and a preview of the output. The Streamlit UI consumes the stream line by line and updates the progress bar and status box in real time.
+
+**Event format:**
+Each event is a JSON object on a `data:` line:
+```json
+{"event": "agent", "data": {"agent": "planner", "status": "running", "message": "Breaking question into tasks..."}}
+{"event": "agent", "data": {"agent": "planner", "status": "done", "output": "1. Search trends..."}}
+{"event": "complete", "data": {"question": "...", "report": "...", "entities": {...}, ...}}
+```
+
+**Event types:**
+- `start` — pipeline has begun
+- `agent` — an agent has started (`status: running`) or finished (`status: done`)
+- `complete` — all agents done, full result payload included
+
+**Why SSE over WebSockets:**
+SSE is simpler for one-way server-to-client streaming — no handshake, no connection upgrade, works over standard HTTP. WebSockets would be needed for bidirectional communication (e.g. letting the user send a follow-up question mid-pipeline) which is a future improvement.
+
+**Known limitation:**
+The `/research` non-streaming endpoint remains available for direct API use and testing. The Streamlit UI uses `/research/stream` by default.
+
 ## Known limitations
 
 - `llama3.2` is a 3B model - outputs can be vague on complex topics. `mistral` or `llama3.1:8b` give better results.
@@ -363,29 +403,60 @@ This returns both orderings side by side showing rerank scores vs cosine scores.
 - The A2A analyst re-research is triggered by weak phrase detection ("no information", "insufficient" etc.) in the insights. If the analyst produces plausible-sounding but shallow insights without these phrases, re-research will not be triggered.
 - The A2A pipeline requires all six terminals running (Ollama, three MCP servers, A2A agent server, and optionally the FastAPI main API) — more moving parts than the sequential pipeline which only needs Ollama and the three MCP servers.
 - The reranker model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) loads on first use and adds ~100-200ms per search on CPU. If unavailable, the system falls back to cosine similarity scoring automatically.
+- The SSE stream runs each agent sequentially in a thread executor — if one agent is slow (e.g. writer with a large context), the stream will pause at that step with no intermediate updates until the agent completes.
+
 ---
 
 ## Possible next steps
 
-- Make the relevance score threshold configurable via environment variable
-- Add an MCP server for Neo4j to fully decouple the knowledge graph from agents
-- Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement
-- Add source citations directly in the final report
-- Streaming responses via WebSockets
-- Visualise the knowledge graph in the Streamlit UI
-- API authentication for deployment
-- Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs — fits naturally into the existing LoRA training pipeline
-- Multilingual support — detect document language before chunking, translate non-English content before embedding to improve retrieval quality across languages
-- Hallucination reduction — add a fact-checking step between the analyst and writer that cross-references claims against retrieved source documents before the report is written
-- Error recovery — implement checkpoint saving so a failed pipeline run can resume from the last successful agent rather than restarting from the planner
-- Monitoring and observability — add structured logging per agent with timestamps, token counts and latency metrics, exportable to a dashboard
-- PII detection and filtering — add a pre-storage filter in the MCP vector store server that detects and redacts personally identifiable information before chunks are written to ChromaDB
-- Prompt injection detection — add input sanitisation in the researcher and analyst that detects and rejects retrieved content containing instruction-like patterns before prompt injection
-- Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL
-- Advanced chunking strategies — replace fixed-size character chunking with semantic chunking on sentence or paragraph boundaries, with larger chunk sizes for arXiv abstracts which are denser than web snippets
-- Evaluation framework expansion — extend the LLM-as-judge evaluator to score RAG retrieval quality separately from report quality, and add reproducibility metrics by measuring score variance across repeated runs
-- Traceability and compliance — attach source URLs and retrieval timestamps to every claim in the final report, and maintain an audit log of which chunks were retrieved and injected into each agent prompt per run
+### Quick Hits
+
+- Fix silent exception swallowing in MCPClient.call_tool — add a print or logger call before returning the empty list so failures are distinguishable from genuine empty results. One line change in mcp_client.py.
+- Fix the SERVER_PORTS fallback in MCPClient.call_tool — remove the default fallback to 8001 and raise a KeyError or log an explicit warning when an unrecognised server name is passed, so misconfigured calls fail loudly rather than silently routing to the wrong server. One line change in mcp_client.py.
+- Fix the thread-safety bug in the vector store compare endpoint — replace the pattern of setting store.reranker = None directly on the live store object with a flag passed into the search method, so concurrent requests during a compare call do not silently lose the reranker. Change confined to vector_store_server.py and vector_store.py.
+- Standardise chunking across all source servers — arXiv results are currently returned as single truncated documents while web search results are chunked at 200 characters with 50-character overlap inside the server, making retrieval inconsistent across sources. Move chunking out of web_search_server.py and into the researcher agent so all sources — web search, arXiv, and any future server — are chunked uniformly after merging. Changes touch researcher.py, web_search_server.py, and arxiv_server.py.
+- Add a ping or health endpoint to each MCP server and a startup check in MCPClient — each server exposes a GET /health route returning 200, and the client checks reachability on initialisation and logs a warning per unavailable server rather than failing silently at query time. Changes touch mcp_client.py and each of the three server files.
+- Pass planner sub-tasks into researcher.py as additional retrieval queries alongside the original question; run ChromaDB retrieval for each, union the candidate chunks, and pass the full set to the reranker. Requires no schema changes or new servers. Do this alongside the asyncio parallelism change since both touch the same researcher.py call flow.
+- Extend the multi-query approach to DuckDuckGo and arXiv MCP calls; run one search per planner sub-task and merge results before chunking into ChromaDB. Deduplication by source URL already exists in the web search server so merging is straightforward.
+- Make the relevance score threshold configurable via environment variable.
+- Add an optional low-temperature Ollama call in researcher.py before retrieval that rephrases the research question into three to five alternative queries; union these with the planner sub-tasks and use the combined set for both ChromaDB and web search retrieval. Gate behind an environment variable so it can be toggled off. Add after multi-query retrieval is confirmed working since it builds on the same multi-query path.
+- Add a download button in the Streamlit UI to save the final report as a markdown file.
+- Reframe the LoRA fine-tuning section as a standalone experimental track rather than a pipeline component — move it to a separate FINETUNING.md, add a note at the top clarifying it demonstrates the fine-tuning workflow rather than providing a production-quality writer, remove the LoRA writer from the stack table to avoid implying parity with other components, and retain the evaluation table since it honestly illustrates the impact of model scale and training data size. No code changes required.
+
+### Bigger Changes
+
+- Google Gemini integration — add configurable LLM provider support in base_agent.py via LLM_PROVIDER environment variable, switching between Ollama (local, free) and Gemini API (cloud, free tier via Google AI Studio). Assign gemini-2.0-flash to analyst, writer and critic where output quality matters, and gemini-1.5-flash-8b to planner, researcher and graph builder where the task is simple enough that a smaller model suffices. Add a 4-second inter-agent delay when using Gemini to stay within the free tier 15 RPM limit. No agent, pipeline or MCP code changes required beyond base_agent.py and per-agent model defaults.
+- Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
+- Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
+- Error recovery — implement checkpoint saving so a failed pipeline run can resume from the last successful agent rather than restarting from the planner.
+- Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.
+- Supercharge-aware researcher — before running web search and arXiv, check ChromaDB for existing chunks on the topic using a coverage threshold; if sufficient pre-populated content exists from a supercharge run, skip the researcher entirely and pass cached chunks directly to the analyst, saving web search calls and pipeline time.
+- Advanced chunking strategies — replace fixed-size character chunking with semantic chunking on sentence or paragraph boundaries, with larger chunk sizes for arXiv abstracts which are denser than web snippets.
+- Report grounding improvement — add a post-writer step that cross-references claims in the report against the retrieved chunks and flags or removes any statement not supported by the source documents, reducing hallucination in the final output.
+- Graph-informed RAG retrieval — query Neo4j for entities related to the research topic before ChromaDB retrieval, using known entity relationships to expand the search context and surface more relevant chunks.
+- Add an MCP server for Neo4j to fully decouple the knowledge graph from agents, consistent with the rest of the MCP architecture.
+- Make MCP servers protocol-compliant — the current servers are a custom HTTP tool-calling layer modelled on MCP concepts rather than a compliant implementation of the protocol. Full compliance requires each server to expose a tool discovery endpoint so clients can dynamically query available tools, accept invocation requests in MCP's standardised JSON envelope (tool name, arguments object, invocation ID) rather than flat per-endpoint Pydantic models, and return responses in MCP's defined format with typed content blocks, isError flags, and error metadata rather than arbitrary JSON. The bespoke MCPClient can then be replaced entirely by any standard MCP-compatible client, and the servers become usable from Claude Desktop or any other MCP host without modification.
+- Longer context window — switch to a model with a larger context window (e.g. llama3.1:8b or Gemini) so the writer receives the full analyst insights and all retrieved chunks rather than a truncated version, producing more complete and detailed reports.
+- Multi-run synthesis — run the pipeline on the same topic multiple times with different search queries and synthesise the results into a single consolidated report, reducing the impact of any single poor web search result.
+- Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement, making the fine-tuning track a genuine alternative to Ollama rather than a workflow demonstration.
+- Visualise the knowledge graph in the Streamlit UI.
+- Entity-grounded chunking — tag ChromaDB chunks with entities extracted by the graph builder at storage time, enabling hybrid retrieval by entity and semantic similarity.
+- Report personalisation — allow the user to specify report length, audience (technical vs non-technical) and focus areas via the Streamlit UI before running the pipeline, passing these as constraints to the writer prompt.
+- Expanded query caching — cache LLM-generated query expansions in a lightweight key-value store keyed by a hash of the original question; repeated queries on similar topics skip the expansion LLM call and reuse prior variants. Only worth adding once query expansion is confirmed to improve retrieval scores.
+- Hierarchical retrieval — when arXiv or supercharge ingestion is extended to full-length documents rather than truncated snippets, store a summary embedding per document alongside fine-grained chunk embeddings; use summary embeddings for first-pass recall and chunk embeddings for precision before passing candidates to the existing reranker. Not worth adding until document length justifies the added layer — current 200-character chunks from short snippets do not.
+- Add DPO (Direct Preference Optimisation) training using critic feedback as preferred/rejected pairs — fits naturally into the existing LoRA training pipeline. Depends on fine-tuning a larger model with sufficient training data first.
+- Query expansion evaluation — once multi-query retrieval is in place, extend the retrieval quality metric to benchmark query expansion on versus off, measuring whether expanded query variants surface chunks that the original single query misses.
+- Evaluation framework expansion — extend the LLM-as-judge evaluator to score RAG retrieval quality separately from report quality, and add reproducibility metrics by measuring score variance across repeated runs.
+- Hallucination reduction — add a fact-checking step between the analyst and writer that cross-references claims against retrieved source documents before the report is written. Overlaps significantly with the report grounding post-writer step; implement one before considering the other.
+- Monitoring and observability — add structured logging per agent with timestamps, token counts and latency metrics, exportable to a dashboard.
+- API authentication for deployment.
+- Prompt injection detection — add input sanitisation in the researcher and analyst that detects and rejects retrieved content containing instruction-like patterns before prompt injection.
+- PII detection and filtering — add a pre-storage filter in the MCP vector store server that detects and redacts personally identifiable information before chunks are written to ChromaDB.
+- Multilingual support — detect document language before chunking, translate non-English content before embedding to improve retrieval quality across languages.
+- Traceability and compliance — attach source URLs and retrieval timestamps to every claim in the final report, and maintain an audit log of which chunks were retrieved and injected into each agent prompt per run.
+
 ---
+
 
 ## License
 

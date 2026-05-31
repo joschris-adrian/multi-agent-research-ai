@@ -6,6 +6,12 @@ from typing import List, Dict, Any
 app = FastAPI()
 store = VectorStore()
 
+@app.on_event("startup")
+async def startup():
+    print("[vector_store_server] pre-warming reranker...")
+    store.search("warmup", top_k=1)
+    print("[vector_store_server] reranker ready")
+    
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5

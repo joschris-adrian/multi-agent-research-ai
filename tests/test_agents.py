@@ -814,6 +814,33 @@ def test_vector_store_search_fetches_more_candidates_for_reranker():
         call_kwargs = mock_collection.query.call_args[1]
         assert call_kwargs["n_results"] == 15
 
+# ── reranker warmup ───────────────────────────────────────────────────────────
+
+def test_vector_store_search_works_after_warmup():
+    with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \
+         patch("src.memory.vector_store.CrossEncoder") as mock_reranker_class:
+
+        mock_collection = MagicMock()
+        mock_collection.get.return_value = {"ids": [], "metadatas": []}
+        mock_collection.query.return_value = {
+            "documents": [["Solar is growing."]], "distances": [[0.1]]
+        }
+        mock_client.return_value.get_or_create_collection.return_value = mock_collection
+
+        mock_reranker = MagicMock()
+        mock_reranker.predict.return_value = [0.9]
+        mock_reranker_class.return_value = mock_reranker
+
+        from src.memory.vector_store import VectorStore
+        store = VectorStore()
+
+        # warmup call
+        store.search("warmup", top_k=1)
+        # real call
+        results = store.search("solar energy", top_k=1)
+
+        assert mock_collection.query.call_count == 2
+        assert isinstance(results, list)
 
 def test_vector_store_search_returns_top_k_after_reranking():
     with patch("src.memory.vector_store.chromadb.PersistentClient") as mock_client, \

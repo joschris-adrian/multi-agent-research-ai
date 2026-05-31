@@ -158,3 +158,27 @@ def test_vector_store_search_accepts_rerank_flag():
         client = get_vs_client()
         r = client.post("/vector_store/search", json={"query": "solar", "rerank": False})
         assert r.status_code == 200
+
+# ── vector store server startup warmup ───────────────────────────────────────
+
+def test_vector_store_server_prewarms_reranker_on_startup():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        mock_store.reranker = MagicMock()
+        from fastapi.testclient import TestClient
+        from src.mcp.servers.vector_store_server import app
+        with TestClient(app) as client:
+            mock_store.search.assert_called_with("warmup", top_k=1)
+
+
+def test_vector_store_server_startup_handles_empty_store():
+    with patch("src.mcp.servers.vector_store_server.store") as mock_store:
+        mock_store.search.return_value = []
+        mock_store.reranker = None
+        from fastapi.testclient import TestClient
+        from src.mcp.servers.vector_store_server import app
+        try:
+            with TestClient(app) as client:
+                pass
+        except Exception:
+            assert False, "startup should not raise when store is empty"
