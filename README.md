@@ -425,8 +425,6 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Bigger Changes
 
-- Make the web search server protocol-compliant — apply the same tools/list and tools/call pattern as the vector store server. The web search server is the simplest of the three so use it to validate the pattern established in the previous step before moving to arXiv.
-- Make the arXiv server protocol-compliant — apply the same tools/list and tools/call pattern. Confirm that the SSE transport and response envelope work consistently across all three servers before proceeding to client replacement.
 - Replace the bespoke MCPClient with a standard MCP-compatible client — once all three servers are compliant, drop mcp_client.py and replace it with a standard client using the official Python MCP SDK. All agents that currently call MCPClient.call_tool will route through the standard client instead.
 - Google Gemini integration — add configurable LLM provider support in base_agent.py via LLM_PROVIDER environment variable, switching between Ollama (local, free) and Gemini API (cloud, free tier via Google AI Studio). Assign gemini-2.0-flash to analyst, writer and critic where output quality matters, and gemini-1.5-flash-8b to planner, researcher and graph builder where the task is simple enough that a smaller model suffices. Add a 4-second inter-agent delay when using Gemini to stay within the free tier 15 RPM limit. No agent, pipeline or MCP code changes required beyond base_agent.py and per-agent model defaults.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
