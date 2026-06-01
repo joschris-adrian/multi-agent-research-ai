@@ -425,11 +425,11 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Bigger Changes
 
+
 - Replace the bespoke MCPClient with a standard MCP-compatible client — once all three servers are compliant, drop mcp_client.py and replace it with a standard client using the official Python MCP SDK. All agents that currently call MCPClient.call_tool will route through the standard client instead.
 - Google Gemini integration — add configurable LLM provider support in base_agent.py via LLM_PROVIDER environment variable, switching between Ollama (local, free) and Gemini API (cloud, free tier via Google AI Studio). Assign gemini-2.0-flash to analyst, writer and critic where output quality matters, and gemini-1.5-flash-8b to planner, researcher and graph builder where the task is simple enough that a smaller model suffices. Add a 4-second inter-agent delay when using Gemini to stay within the free tier 15 RPM limit. No agent, pipeline or MCP code changes required beyond base_agent.py and per-agent model defaults.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
-- Error recovery — implement checkpoint saving so a failed pipeline run can resume from the last successful agent rather than restarting from the planner.
 - Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.
 - Supercharge-aware researcher — before running web search and arXiv, check ChromaDB for existing chunks on the topic using a coverage threshold; if sufficient pre-populated content exists from a supercharge run, skip the researcher entirely and pass cached chunks directly to the analyst, saving web search calls and pipeline time.
 - Advanced chunking strategies — replace fixed-size character chunking with semantic chunking on sentence or paragraph boundaries, with larger chunk sizes for arXiv abstracts which are denser than web snippets.
