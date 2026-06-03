@@ -173,22 +173,15 @@ def test_arxiv_search_query_includes_topic():
 
 # MCP client routing 
 
-def test_mcp_client_routes_arxiv_to_8003():
-    from src.mcp.client.mcp_client import SERVER_PORTS
-    assert "8003" in SERVER_PORTS["arxiv"]
+def test_mcp_client_routes_arxiv_to_8013():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8013" in SERVER_URLS["arxiv"]
 
-
-def test_mcp_client_arxiv_uses_correct_port():
-    from unittest.mock import patch, MagicMock
-    with patch("src.mcp.client.mcp_client.httpx.post") as mock_post:
-        mock_post.return_value = MagicMock(json=lambda: {"result": []})
-        from src.mcp.client.mcp_client import MCPClient
-        client = MCPClient()
-        client.call_tool("arxiv", "search", {"topic": "solar energy"})
-        url_called = mock_post.call_args[0][0]
-        assert "8003" in url_called
-
-
+def test_mcp_client_arxiv_uses_correct_url():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8013" in SERVER_URLS["arxiv"]
+    assert "/mcp" in SERVER_URLS["arxiv"]
+            
 # researcher integration
 
 def test_researcher_merges_web_and_arxiv_results():

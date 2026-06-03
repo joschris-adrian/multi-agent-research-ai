@@ -80,4 +80,5 @@ def mcp_arxiv_search(topic: str, max_results: int = 5) -> str:
         return str([])
 
 
-app.mount("/mcp", mcp.sse_app())
+app.mount("/", mcp.streamable_http_app())
+

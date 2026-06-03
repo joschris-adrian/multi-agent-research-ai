@@ -225,40 +225,32 @@ def test_ollama_host_env_var(mock_post):
 
 # MCP client routing 
 
-def test_mcp_client_routes_vector_store_to_8001():
-    from src.mcp.client.mcp_client import MCPClient, SERVER_PORTS
-    assert "8001" in SERVER_PORTS["vector_store"]
+def test_mcp_client_routes_vector_store_to_8011():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8011" in SERVER_URLS["vector_store"]
 
-def test_mcp_client_routes_web_search_to_8002():
-    from src.mcp.client.mcp_client import MCPClient, SERVER_PORTS
-    assert "8002" in SERVER_PORTS["web_search"]
+def test_mcp_client_routes_web_search_to_8012():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8012" in SERVER_URLS["web_search"]
+    
+def test_mcp_client_call_tool_uses_correct_url():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8012" in SERVER_URLS["web_search"]
+    assert "/mcp" in SERVER_URLS["web_search"]
 
-def test_mcp_client_call_tool_uses_correct_port():
-    with patch("src.mcp.client.mcp_client.httpx.post") as mock_post:
-        mock_post.return_value = MagicMock(json=lambda: {"result": []})
-        from src.mcp.client.mcp_client import MCPClient
-        client = MCPClient()
-        client.call_tool("web_search", "search", {"query": "test"})
-        url_called = mock_post.call_args[0][0]
-        assert "8002" in url_called
-
-def test_mcp_client_vector_store_uses_correct_port():
-    with patch("src.mcp.client.mcp_client.httpx.post") as mock_post:
-        mock_post.return_value = MagicMock(json=lambda: {"result": []})
-        from src.mcp.client.mcp_client import MCPClient
-        client = MCPClient()
-        client.call_tool("vector_store", "search", {"query": "test"})
-        url_called = mock_post.call_args[0][0]
-        assert "8001" in url_called
-
+def test_mcp_client_vector_store_uses_correct_url():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "8011" in SERVER_URLS["vector_store"]
+    assert "/mcp" in SERVER_URLS["vector_store"]
+            
 def test_analyst_handles_mcp_unavailable():
-    with patch("src.mcp.client.mcp_client.httpx.post", side_effect=Exception("connection refused")):
+    with patch("src.mcp.client.mcp_client.asyncio.run", side_effect=Exception("connection refused")):
         with patch("src.agents.base_agent.requests.post") as mock_post:
             mock_post.return_value = make_mock("Solar is growing fast.")
             docs = [{"title": "Solar", "content": "Solar is booming.", "source": "http://example.com"}]
             result = AnalystAgent().analyze(docs, "solar energy")
             assert isinstance(result, str) and len(result) > 0
-
+            
 # Chunking 
 
 def test_researcher_chunks_long_content():

@@ -81,4 +81,4 @@ def mcp_web_search(query: str, max_results: int = 3, retries: int = 3, delay: in
     return str([])
 
 
-app.mount("/mcp", mcp.sse_app())
+

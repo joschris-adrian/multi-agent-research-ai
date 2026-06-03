@@ -7,13 +7,16 @@ Usage:
     python start.py --stop   # stops all running servers
 
 Servers started:
-    - Ollama                    (port 11434)
-    - Vector store MCP          (port 8001)
-    - Web search MCP            (port 8002)
-    - arXiv MCP                 (port 8003)
-    - FastAPI main API          (port 8000)
-    - Streamlit UI              (port 8501)
-    - A2A agent server          (port 8004, optional)
+    - Ollama                        (port 11434)
+    - Vector store MCP              (port 8001)
+    - Web search MCP                (port 8002)
+    - arXiv MCP                     (port 8003)
+    - Vector store MCP protocol     (port 8011)
+    - Web search MCP protocol       (port 8012)
+    - arXiv MCP protocol            (port 8013)
+    - FastAPI main API              (port 8000)
+    - Streamlit UI                  (port 8501)
+    - A2A agent server              (port 8004, optional)
 """
 
 import argparse
@@ -69,6 +72,36 @@ SERVERS = [
         "a2a_only": False,
     },
     {
+        "name": "Vector store MCP (protocol)",
+        "cmd": ["python", "-m", "src.mcp.servers.vector_store_mcp_server"],
+        "port": 8011,
+        "health_url": "http://localhost:8011/mcp",
+        "health_method": "GET",
+        "health_payload": None,
+        "startup_delay": 5,
+        "a2a_only": False,
+    },
+    {
+        "name": "Web search MCP (protocol)",
+        "cmd": ["python", "-m", "src.mcp.servers.web_search_mcp_server"],
+        "port": 8012,
+        "health_url": "http://localhost:8012/mcp",
+        "health_method": "GET",
+        "health_payload": None,
+        "startup_delay": 3,
+        "a2a_only": False,
+    },
+    {
+        "name": "arXiv MCP (protocol)",
+        "cmd": ["python", "-m", "src.mcp.servers.arxiv_mcp_server"],
+        "port": 8013,
+        "health_url": "http://localhost:8013/mcp",
+        "health_method": "GET",
+        "health_payload": None,
+        "startup_delay": 3,
+        "a2a_only": False,
+    },
+    {
         "name": "FastAPI main API",
         "cmd": ["uvicorn", "api.main:app", "--port", "8000"],
         "port": 8000,
@@ -116,10 +149,10 @@ def check_health(server, timeout=60):
             r = requests.get(url, timeout=timeout)
         else:
             r = requests.post(url, json=payload, timeout=timeout)
-        return r.status_code == 200
+        return r.status_code in (200, 406)
     except Exception:
         return False
-
+    
 
 def start_server(server):
     if is_port_in_use(server["port"]):

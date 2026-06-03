@@ -133,6 +133,5 @@ def test_existing_add_endpoint_still_works():
         response = client.post("/vector_store/add", json={"documents": [{"content": "test", "source": "http://example.com", "title": "Test"}]})
     assert response.status_code == 200
 
-def test_mcp_mount_exists():
-    paths = [r.path for r in app.routes]
-    assert "/mcp" in paths
+def test_mcp_tools_registered():
+    assert len(mcp._tool_manager._tools) > 0

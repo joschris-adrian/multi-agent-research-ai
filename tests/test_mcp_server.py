@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # vector store server 
@@ -182,3 +183,122 @@ def test_vector_store_server_startup_handles_empty_store():
                 pass
         except Exception:
             assert False, "startup should not raise when store is empty"
+
+# --- unknown server and tool ---
+
+def test_unknown_server_returns_empty():
+    from src.mcp.client.mcp_client import MCPClient
+    client = MCPClient()
+    result = client.call_tool("nonexistent_server", "search", {"query": "test"})
+    assert result == []
+
+def test_unknown_tool_returns_empty():
+    from src.mcp.client.mcp_client import MCPClient
+    client = MCPClient()
+    result = client.call_tool("vector_store", "nonexistent_tool", {"query": "test"})
+    assert result == []
+
+def test_unknown_server_logs_warning(capsys):
+    from src.mcp.client.mcp_client import MCPClient
+    client = MCPClient()
+    client.call_tool("bad_server", "search", {})
+    assert "unknown server" in capsys.readouterr().out
+
+def test_unknown_tool_logs_warning(capsys):
+    from src.mcp.client.mcp_client import MCPClient
+    client = MCPClient()
+    client.call_tool("vector_store", "bad_tool", {})
+    assert "unknown tool" in capsys.readouterr().out
+
+
+# --- tool name mapping ---
+
+def test_vector_store_search_maps_to_mcp_search():
+    from src.mcp.client.mcp_client import TOOL_NAMES
+    assert TOOL_NAMES[("vector_store", "search")] == "mcp_search"
+
+def test_vector_store_add_maps_to_mcp_add():
+    from src.mcp.client.mcp_client import TOOL_NAMES
+    assert TOOL_NAMES[("vector_store", "add")] == "mcp_add"
+
+def test_web_search_maps_to_mcp_web_search():
+    from src.mcp.client.mcp_client import TOOL_NAMES
+    assert TOOL_NAMES[("web_search", "search")] == "mcp_web_search"
+
+def test_arxiv_maps_to_mcp_arxiv_search():
+    from src.mcp.client.mcp_client import TOOL_NAMES
+    assert TOOL_NAMES[("arxiv", "search")] == "mcp_arxiv_search"
+
+
+# --- server URLs ---
+
+def test_vector_store_url_contains_mcp():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "/mcp" in SERVER_URLS["vector_store"]
+    assert "8011" in SERVER_URLS["vector_store"]
+
+def test_web_search_url_contains_mcp():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "/mcp" in SERVER_URLS["web_search"]
+    assert "8012" in SERVER_URLS["web_search"]
+
+def test_arxiv_url_contains_mcp():
+    from src.mcp.client.mcp_client import SERVER_URLS
+    assert "/mcp" in SERVER_URLS["arxiv"]
+    assert "8013" in SERVER_URLS["arxiv"]
+            
+# --- result parsing ---
+
+def _make_mock_session(text: str):
+    block = MagicMock()
+    block.text = text
+    result = MagicMock()
+    result.content = [block]
+    session = AsyncMock()
+    session.initialize = AsyncMock()
+    session.call_tool = AsyncMock(return_value=result)
+    return session
+
+def _patch_http(session):
+    cm = AsyncMock()
+    cm.__aenter__ = AsyncMock(return_value=(AsyncMock(), AsyncMock(), AsyncMock()))
+    cm.__aexit__ = AsyncMock(return_value=False)
+    session_cm = AsyncMock()
+    session_cm.__aenter__ = AsyncMock(return_value=session)
+    session_cm.__aexit__ = AsyncMock(return_value=False)
+    return cm, session_cm
+
+def test_call_tool_parses_list_result():
+    from src.mcp.client.mcp_client import MCPClient
+    session = _make_mock_session("[{'content': 'solar data', 'score': 0.9}]")
+    sse_cm, session_cm = _patch_http(session)
+    with patch("src.mcp.client.mcp_client.streamablehttp_client", return_value=sse_cm):
+        with patch("src.mcp.client.mcp_client.ClientSession", return_value=session_cm):
+            client = MCPClient()
+            result = client.call_tool("vector_store", "search", {"query": "solar"})
+    assert isinstance(result, list)
+    assert result[0]["content"] == "solar data"
+
+def test_call_tool_returns_empty_list_on_empty_result():
+    from src.mcp.client.mcp_client import MCPClient
+    session = _make_mock_session("[]")
+    sse_cm, session_cm = _patch_http(session)
+    with patch("src.mcp.client.mcp_client.streamablehttp_client", return_value=sse_cm):
+        with patch("src.mcp.client.mcp_client.ClientSession", return_value=session_cm):
+            client = MCPClient()
+            result = client.call_tool("vector_store", "search", {"query": "obscure"})
+    assert result == []
+    
+def test_call_tool_returns_empty_on_connection_error():
+    from src.mcp.client.mcp_client import MCPClient
+    with patch("src.mcp.client.mcp_client.asyncio.run", side_effect=Exception("connection refused")):
+        client = MCPClient()
+        result = client.call_tool("vector_store", "search", {"query": "test"})
+    assert result == []
+
+def test_call_tool_logs_on_connection_error(capsys):
+    from src.mcp.client.mcp_client import MCPClient
+    with patch("src.mcp.client.mcp_client.asyncio.run", side_effect=Exception("connection refused")):
+        client = MCPClient()
+        client.call_tool("vector_store", "search", {"query": "test"})
+    assert "call failed" in capsys.readouterr().out

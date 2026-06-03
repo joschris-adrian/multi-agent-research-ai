@@ -142,6 +142,5 @@ def test_existing_arxiv_endpoint_returns_result_key():
         response = client.post("/arxiv/search", json={"topic": "solar energy"})
     assert "result" in response.json()
 
-def test_mcp_mount_exists():
-    paths = [r.path for r in app.routes]
-    assert "/mcp" in paths
+def test_mcp_tools_registered():
+    assert len(mcp._tool_manager._tools) > 0

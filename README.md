@@ -35,7 +35,9 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 | Agent pipeline  | Custom multi-agent architecture |
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
-| MCP servers     | FastAPI (vector store: 8001, web search: 8002, arXiv: 8003) |
+| MCP servers (HTTP) | FastAPI (vector store: 8001, web search: 8002, arXiv: 8003) |
+| MCP servers (protocol) | FastMCP streamable HTTP (vector store: 8011, web search: 8012, arXiv: 8013) |
+| MCP client      | Official Python MCP SDK (streamablehttp_client)          |
 | A2A             | Agent-to-Agent protocol (port 8004)             |
 | Supercharge     | `scripts/supercharge.py` - bulk ingestion CLI   |
 | RAG             | ChromaDB semantic search + cross-encoder reranker (ms-marco-MiniLM-L-6-v2) |
@@ -78,11 +80,14 @@ multi-agent-research-ai/
 │   │   └── vector_store.py     # ChromaDB wrapper
 │   ├── mcp/
 │   │   ├── client/
-│   │   │   └── mcp_client.py          # HTTP client used by all agents
+│   │   └── mcp_client.py          # MCP SDK client used by all agents
 │   │   └── servers/
 │   │       ├── vector_store_server.py # ChromaDB exposed as MCP server
 │   │       ├── web_search_server.py   # DuckDuckGo exposed as MCP server
-│   │       └── arxiv_server.py        # arXiv API exposed as MCP server
+│   │       ├── arxiv_server.py        # arXiv API exposed as MCP server
+│   │       ├── vector_store_mcp_server.py # ChromaDB as standalone FastMCP server (port 8011)
+│   │       ├── web_search_mcp_server.py   # DuckDuckGo as standalone FastMCP server (port 8012)
+│   │       └── arxiv_mcp_server.py        # arXiv as standalone FastMCP server (port 8013)
 │   ├── models/
 │   │   └── peft_model.py       # LoRA adapter loader
 │   ├── graph/
@@ -154,7 +159,7 @@ python start.py --stop
 Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop.
 
 
-**Option 2b - API + UI (five terminals):**
+**Option 2b - API + UI (eight terminals):**
 ```bash
 # terminal 1
 uvicorn api.main:app --reload
@@ -165,10 +170,19 @@ uvicorn src.mcp.servers.vector_store_server:app --port 8001 --reload
 # terminal 3
 uvicorn src.mcp.servers.web_search_server:app --port 8002 --reload
 
-# terminal 4 
+# terminal 4
 uvicorn src.mcp.servers.arxiv_server:app --port 8003 --reload
 
 # terminal 5
+python -m src.mcp.servers.vector_store_mcp_server
+
+# terminal 6
+python -m src.mcp.servers.web_search_mcp_server
+
+# terminal 7
+python -m src.mcp.servers.arxiv_mcp_server
+
+# terminal 8
 streamlit run ui/streamlit_app.py
 ```
 
@@ -386,7 +400,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - ChromaDB persists to `./chroma_db` on disk. Chunks older than 7 days are automatically evicted on each search. Delete this folder to reset vector memory entirely. TTL is configurable via `TTL_SECONDS` in `vector_store.py`.
 - ChromaDB's ONNX embedding model takes 20-30 seconds to initialise on first write. The MCP vector store client uses a 60 second timeout to handle this - subsequent calls are fast.
 - DuckDuckGo occasionally rate-limits - the MCP web search server retries 3 times before returning empty.
-- MCP servers must be running separately for agents to access web search and vector memory. Vector store runs on port 8001, web search on port 8002. The analyst degrades gracefully if unavailable, but the researcher will return empty results.
+- Two sets of MCP servers must be running separately. The HTTP API servers (ports 8001, 8002, 8003) handle custom endpoints used by health checks and the compare endpoint. The protocol servers (ports 8011, 8012, 8013) handle MCP-compliant tool calls from agents via the streamable HTTP transport. If the protocol servers are unavailable the researcher and analyst will return empty results.
 - The graph builder relies on the LLM returning valid JSON - falls back to empty entity set if parsing fails.
 - Neo4j must be running separately (via Docker) for the knowledge graph to work. The pipeline skips it gracefully if unavailable.
 - The LoRA fine-tuned writer uses opt-125m which is too small for high-quality report generation without significantly more training data.
@@ -411,6 +425,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Quick Hits
 
+- Fix start.py --stop to kill servers by port rather than by saved PID — use netstat on Windows and lsof on Mac/Linux to find the PID currently occupying each known port (8000, 8001, 8002, 8003, 8501, 8004) and kill it directly, so --stop reliably terminates all servers regardless of whether their PIDs were saved in .server_pids.json. Keep PID-based cleanup as a fallback for any ports not found via netstat.
 - Fix silent exception swallowing in MCPClient.call_tool — add a print or logger call before returning the empty list so failures are distinguishable from genuine empty results. One line change in mcp_client.py.
 - Fix the SERVER_PORTS fallback in MCPClient.call_tool — remove the default fallback to 8001 and raise a KeyError or log an explicit warning when an unrecognised server name is passed, so misconfigured calls fail loudly rather than silently routing to the wrong server. One line change in mcp_client.py.
 - Fix the thread-safety bug in the vector store compare endpoint — replace the pattern of setting store.reranker = None directly on the live store object with a flag passed into the search method, so concurrent requests during a compare call do not silently lose the reranker. Change confined to vector_store_server.py and vector_store.py.
@@ -426,7 +441,6 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 ### Bigger Changes
 
 
-- Replace the bespoke MCPClient with a standard MCP-compatible client — once all three servers are compliant, drop mcp_client.py and replace it with a standard client using the official Python MCP SDK. All agents that currently call MCPClient.call_tool will route through the standard client instead.
 - Google Gemini integration — add configurable LLM provider support in base_agent.py via LLM_PROVIDER environment variable, switching between Ollama (local, free) and Gemini API (cloud, free tier via Google AI Studio). Assign gemini-2.0-flash to analyst, writer and critic where output quality matters, and gemini-1.5-flash-8b to planner, researcher and graph builder where the task is simple enough that a smaller model suffices. Add a 4-second inter-agent delay when using Gemini to stay within the free tier 15 RPM limit. No agent, pipeline or MCP code changes required beyond base_agent.py and per-agent model defaults.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
@@ -437,6 +451,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - Graph-informed RAG retrieval — query Neo4j for entities related to the research topic before ChromaDB retrieval, using known entity relationships to expand the search context and surface more relevant chunks.
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents, consistent with the rest of the MCP architecture.
 - Longer context window — switch to a model with a larger context window (e.g. llama3.1:8b or Gemini) so the writer receives the full analyst insights and all retrieved chunks rather than a truncated version, producing more complete and detailed reports.
+- Retrieval-augmented prompt strategy — the analyst currently uses naive stuffing, injecting all retrieved chunks directly into a single prompt. As vector memory grows this will silently overflow the context window. Add a map-reduce fallback: if the total retrieved content exceeds a token threshold, split chunks into batches, run the analyst prompt independently on each batch to extract partial insights, then run a final synthesis prompt over the partial insights. This avoids truncation without requiring a larger context window and fits naturally into analyst.py with no pipeline changes. A refine pattern (iteratively updating a running summary with each new chunk) is an alternative worth considering if partial insight quality is poor, but map-reduce is simpler to implement and debug first.
 - Multi-run synthesis — run the pipeline on the same topic multiple times with different search queries and synthesise the results into a single consolidated report, reducing the impact of any single poor web search result.
 - Fine-tune a larger model (e.g. llama3.2) with more training data for meaningful quality improvement, making the fine-tuning track a genuine alternative to Ollama rather than a workflow demonstration.
 - Visualise the knowledge graph in the Streamlit UI.

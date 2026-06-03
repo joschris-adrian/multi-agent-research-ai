@@ -69,5 +69,4 @@ def mcp_add(documents: list) -> str:
         return "ok"
     except Exception as e:
         raise ValueError(str(e))
-    
-app.mount("/mcp", mcp.sse_app())
+

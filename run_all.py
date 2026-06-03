@@ -60,6 +60,7 @@ def check_mcp_vector_store():
     assert r.status_code == 200, f"vector store MCP returned {r.status_code}"
     print("  vector store MCP server is running on port 8001")
     
+check("MCP vector store server", check_mcp_vector_store)
 
 def check_mcp_web_search():
     r = requests.post(
@@ -86,6 +87,36 @@ def check_mcp_arxiv():
         print("  arxiv MCP server reachable but arXiv API timed out — server is running")
     
 check("MCP arXiv server", check_mcp_arxiv)
+
+def check_mcp_vector_store_protocol():
+    try:
+        r = requests.get("http://localhost:8011/mcp", timeout=5)
+        assert r.status_code in (200, 405, 406), f"vector store MCP protocol server returned {r.status_code}"
+        print("  vector store MCP protocol server is running on port 8011")
+    except requests.exceptions.ConnectionError:
+        raise Exception("Vector store MCP protocol server not running on port 8011 — start with: python -m src.mcp.servers.vector_store_mcp_server")
+
+check("Vector store MCP protocol server", check_mcp_vector_store_protocol)
+
+def check_mcp_web_search_protocol():
+    try:
+        r = requests.get("http://localhost:8012/mcp", timeout=5)
+        assert r.status_code in (200, 405, 406), f"web search MCP protocol server returned {r.status_code}"
+        print("  web search MCP protocol server is running on port 8012")
+    except requests.exceptions.ConnectionError:
+        raise Exception("Web search MCP protocol server not running on port 8012 — start with: python -m src.mcp.servers.web_search_mcp_server")
+
+check("Web search MCP protocol server", check_mcp_web_search_protocol)
+
+def check_mcp_arxiv_protocol():
+    try:
+        r = requests.get("http://localhost:8013/mcp", timeout=5)
+        assert r.status_code in (200, 405, 406), f"arXiv MCP protocol server returned {r.status_code}"
+        print("  arXiv MCP protocol server is running on port 8013")
+    except requests.exceptions.ConnectionError:
+        raise Exception("arXiv MCP protocol server not running on port 8013 — start with: python -m src.mcp.servers.arxiv_mcp_server")
+
+check("arXiv MCP protocol server", check_mcp_arxiv_protocol)
 
 def check_a2a_server():
     try:
@@ -129,11 +160,10 @@ def check_researcher():
     from src.agents.researcher import ResearchAgent
     agent = ResearchAgent()
     docs = agent.search("solar energy trends 2025", max_results=2)
-    assert isinstance(docs, list)
+    assert isinstance(docs, list) and len(docs) > 0, f"researcher returned no documents — MCP servers may not be running or SSE connection failed"
     print(f"  found {len(docs)} documents")
-    if docs:
-        print(f"  first result: {docs[0]['title'][:60]}")
-
+    print(f"  first result: {docs[0]['title'][:60]}")
+    
 check("Researcher + ChromaDB", check_researcher)
 
 
