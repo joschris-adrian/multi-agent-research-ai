@@ -9,6 +9,9 @@ class PlannerAgent(BaseAgent):
             goal="Break complex research questions into step-by-step research tasks",
             gemini_model="gemini-2.5-flash"
         )
+    
+    def run(self, prompt):
+        return self._call_ollama(prompt)
 
     def plan(self, question):
 

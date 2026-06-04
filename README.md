@@ -150,7 +150,7 @@ python main.py
 # start all servers (Ollama, MCP servers, FastAPI, Streamlit)
 python start.py
 
-# start with Gemini instead of Ollama (Ollama not required)
+# start with Gemini for analyst, writer and critic (Ollama still required for planner, researcher, graph builder)
 python start.py --gemini
 
 # start including A2A pipeline server
@@ -162,7 +162,7 @@ python start.py --gemini --a2a
 # stop all servers started by start.py
 python start.py --stop
 ```
-Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop. If `LLM_PROVIDER=gemini` is already set in `.env`, `python start.py` skips Ollama automatically without needing the `--gemini` flag.
+Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop. If `LLM_PROVIDER=gemini` is already set in `.env`, `python start.py` activates Gemini mode automatically without needing the `--gemini` flag. Ollama is always started regardless of provider.
 
 
 **Option 2b - API + UI (eight terminals):**
@@ -272,30 +272,35 @@ Connection successful.
 | Analyst | gemini-2.5-flash | Higher quality insight extraction |
 | Writer | gemini-2.5-flash | Better prose generation |
 | Critic | gemini-2.5-flash | More precise feedback |
-| Planner | gemini-2.0-flash-lite | Simple task breakdown |
-| Researcher | gemini-2.0-flash-lite | Query extraction only |
-| Graph Builder | gemini-2.0-flash-lite | Structured JSON output |
 
 ### Free tier limits
 
-The free tier allows 15 requests per minute. The pipeline automatically adds a
-10-second delay between agents when `LLM_PROVIDER=gemini` to stay within this
-limit. You can tune this via `GEMINI_DELAY_SECONDS` in your `.env` if needed.
+The free tier allows 15 requests per minute. Only the analyst, writer and critic
+call Gemini — the planner, researcher and graph builder always use Ollama
+regardless of `LLM_PROVIDER`, as model quality makes no measurable difference
+for task breakdown, query extraction and JSON entity extraction. This means
+Ollama must still be running even when `LLM_PROVIDER=gemini`. The pipeline
+automatically adds a 10-second delay between the three Gemini agent calls to
+stay within the rate limit. You can tune this via `GEMINI_DELAY_SECONDS` in
+your `.env` if needed.
 
 If you hit rate limit errors despite the delay, increase the delay by setting
 `GEMINI_DELAY_SECONDS` in your `.env`:
-GEMINI_DELAY_SECONDS=6
 
-Then in `agent_pipeline.py` replace the hardcoded `4` with:
+GEMINI_DELAY_SECONDS=15
 
-```python
-int(os.environ.get("GEMINI_DELAY_SECONDS", "4"))
-```
+
+### Note on Ollama
+
+Even when `LLM_PROVIDER=gemini`, Ollama must still be running — the planner,
+researcher and graph builder always use Ollama regardless of provider. Only the
+analyst, writer and critic call Gemini.
 
 ### Switching back to Ollama
 
-Set `LLM_PROVIDER=ollama` in `.env` (or remove the line entirely) and ensure
-`ollama serve` is running. No other changes are needed.
+Set `LLM_PROVIDER=ollama` in `.env` (or remove the line entirely). No other
+changes are needed.
+
 
 ## Fine-tuning using PEFT(LoRA)
 
@@ -492,6 +497,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - The A2A pipeline requires all six terminals running (Ollama, three MCP servers, A2A agent server, and optionally the FastAPI main API) — more moving parts than the sequential pipeline which only needs Ollama and the three MCP servers.
 - The reranker model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) loads on first use and adds ~100-200ms per search on CPU. If unavailable, the system falls back to cosine similarity scoring automatically.
 - The SSE stream runs each agent sequentially in a thread executor — if one agent is slow (e.g. writer with a large context), the stream will pause at that step with no intermediate updates until the agent completes.
+- The Gemini free tier allows 20 requests per day per model on gemini-2.5-flash. With only the analyst, writer and critic calling Gemini (3 calls per pipeline run), this gives approximately 6 full pipeline runs per day before hitting the daily limit. Running `run_all.py` with Gemini consumes 7 calls in a single pass due to individual agent checks, so no more than 2-3 full verification runs per day are possible on the free tier. Enable billing on Google AI Studio for significantly higher limits.
 
 ---
 
@@ -499,7 +505,6 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Quick Hits
 
-- Lock planner, researcher, and graph builder to Ollama regardless of `LLM_PROVIDER` — these agents perform simple task breakdown, query extraction, and JSON entity extraction where model quality makes no measurable difference to pipeline output. Override `run` in each of the three agent files to call `self._call_ollama(prompt)` directly instead of `self.run(prompt)`, bypassing the provider check in `BaseAgent`. This reduces Gemini API calls from 6 per pipeline run to 3 (analyst, writer, critic only), halving rate limit consumption without any visible quality loss. Three one-line changes, one per agent file. Requires Ollama to be running even when `LLM_PROVIDER=gemini` — update the README and `run_all.py` Gemini section to note this.
 - Make Gemini model names configurable via environment variables — replace the hardcoded `gemini-2.5-flash` in `analyst.py`, `writer.py`, and `critic.py` with `os.environ.get("GEMINI_MODEL_QUALITY", "gemini-2.5-flash")`, and the hardcoded `gemini-2.0-flash-lite` in `planner.py`, `researcher.py`, and `graph_builder.py` with `os.environ.get("GEMINI_MODEL_LITE", "gemini-2.0-flash-lite")`. Replace the hardcoded `4` delay in `agent_pipeline.py` with `int(os.environ.get("GEMINI_DELAY_SECONDS", "4"))`. All three variables are already documented in `.env.example`. Six one-line changes across six agent files plus one line in `agent_pipeline.py`.
 - Fix start.py --stop to kill servers by port rather than by saved PID — use netstat on Windows and lsof on Mac/Linux to find the PID currently occupying each known port (8000, 8001, 8002, 8003, 8501, 8004) and kill it directly, so --stop reliably terminates all servers regardless of whether their PIDs were saved in .server_pids.json. Keep PID-based cleanup as a fallback for any ports not found via netstat.
 - Fix silent exception swallowing in MCPClient.call_tool — add a print or logger call before returning the empty list so failures are distinguishable from genuine empty results. One line change in mcp_client.py.
@@ -518,12 +523,14 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 
 - Provider switching from the Streamlit UI — add a sidebar selector in `streamlit_app.py` letting the user choose between Ollama and Gemini before running the pipeline, and a save button that writes the chosen `LLM_PROVIDER` (and optionally `GEMINI_API_KEY`) back to `.env` using `python-dotenv`'s `set_key` function. On load, read the current value from `.env` via `dotenv_values()` and pre-select the active provider so the UI reflects the real state. If Gemini is selected and no key is stored, show a password input for the key and validate it with a test call to the Gemini API before saving. Changes confined to `ui/streamlit_app.py` and a new `ui/provider_config.py` helper that wraps `dotenv.set_key` and the validation call, keeping the UI code clean. No pipeline or agent changes required.
+- Research topic subscriptions — allow users to subscribe to one or more topics and receive a freshly generated report on a configurable schedule (default weekly). Store subscriptions in a lightweight JSON file or SQLite table with fields for topic, frequency, last run timestamp, and delivery method. Add a scheduler using APScheduler or a cron job that runs the full pipeline on each subscribed topic at the configured interval, passing `submitted_after` to the arXiv MCP server so only papers newer than the last run are retrieved rather than re-fetching the full history. Deliver the report via email (SMTP) or a webhook (Slack, Discord) configurable per subscription. Expose subscription management (add, list, pause, delete) via the existing FastAPI layer with new `/subscriptions` endpoints, and add a subscriptions panel to the Streamlit UI. The vector memory means each weekly run builds on prior context automatically — the analyst will have progressively richer past chunks to retrieve from across successive runs on the same topic. Implement in a new `src/scheduler/` module with `scheduler.py`, `subscription_store.py`, and `delivery.py` keeping scheduling logic fully decoupled from the pipeline.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
 - Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.
 - Supercharge-aware researcher — before running web search and arXiv, check ChromaDB for existing chunks on the topic using a coverage threshold; if sufficient pre-populated content exists from a supercharge run, skip the researcher entirely and pass cached chunks directly to the analyst, saving web search calls and pipeline time.
 - Advanced chunking strategies — replace fixed-size character chunking with semantic chunking on sentence or paragraph boundaries, with larger chunk sizes for arXiv abstracts which are denser than web snippets.
 - Report grounding improvement — add a post-writer step that cross-references claims in the report against the retrieved chunks and flags or removes any statement not supported by the source documents, reducing hallucination in the final output.
+- Quantitative critic scoring for A2A re-write decisions — replace the keyword-matching trigger in the A2A critic with a structured scoring step. After the critic produces its qualitative feedback, run a second low-temperature LLM call that asks the model to score the report on a 1-10 scale across four dimensions (relevance, completeness, clarity, accuracy) and return JSON. Use the average score as the re-write threshold — if it falls below a configurable value (default 7, set via `CRITIC_REWRITE_THRESHOLD` in `.env`) the A2A coordinator requests a revision, passing both the qualitative feedback and the per-dimension scores to the writer so it knows specifically what to improve. Store the scores in the pipeline result dict alongside `critic_feedback` so they are visible in the Streamlit UI and API response. This reuses the same LLM-as-judge scoring logic already built in `src/evaluation/evaluator.py` — the evaluator can be called directly rather than duplicating the prompt, making this a relatively contained change across `a2a_pipeline.py`, `agent_server.py`, and the Streamlit result rendering in `streamlit_app.py`.
 - Graph-informed RAG retrieval — query Neo4j for entities related to the research topic before ChromaDB retrieval, using known entity relationships to expand the search context and surface more relevant chunks.
 - Add an MCP server for Neo4j to fully decouple the knowledge graph from agents, consistent with the rest of the MCP architecture.
 - Longer context window — switch to a model with a larger context window (e.g. llama3.1:8b or Gemini) so the writer receives the full analyst insights and all retrieved chunks rather than a truncated version, producing more complete and detailed reports.
@@ -541,6 +548,10 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - Hallucination reduction — add a fact-checking step between the analyst and writer that cross-references claims against retrieved source documents before the report is written. Overlaps significantly with the report grounding post-writer step; implement one before considering the other.
 - Monitoring and observability — add structured logging per agent with timestamps, token counts and latency metrics, exportable to a dashboard.
 - API authentication for deployment.
+- Secrets manager integration — replace `GEMINI_API_KEY` in `.env` with a runtime fetch from a secrets manager (AWS Secrets Manager, GCP Secret Manager, or HashiCorp Vault) for production deployments. Add a `src/config/secrets.py` helper that calls the relevant SDK on startup and falls back to `os.environ` for local development, so `.env` continues to work unchanged for contributors running locally. The rest of the codebase reads the key through `secrets.py` rather than `os.environ.get` directly, meaning the switch from local to production requires no code changes beyond setting the secrets manager backend via an environment variable. Vault or AWS Secrets Manager would be the most common choices for a self-hosted or AWS-deployed version of this stack respectively.
+- Gemini quota tracker — build a lightweight daily usage tracker in `src/config/gemini_quota.py` that records request counts per model in a local JSON file (e.g. `gemini_quota.json`), resets automatically when the date changes, and exposes a `remaining(model)` function returning how many requests are left against the free tier limit for that model. Surface the per-model counts in the Streamlit sidebar so the user can see remaining capacity before running the pipeline. No external dependencies required beyond the standard library — the tracker reads and writes a single JSON file on each API call via a thin wrapper around `_call_gemini` in `base_agent.py`.
+- Gemini model fallback orchestration — before each Gemini agent call, check `gemini_quota.remaining(model)` and if the remaining count would not cover the full pipeline run, automatically promote to the next available model (e.g. gemini-2.5-flash → gemini-2.0-flash-lite → gemini-2.0-flash) by updating `self.gemini_model` at call time rather than at init. If all tracked models are exhausted for the day, fall back to Ollama automatically and print a clear message: "All Gemini model daily limits reached — falling back to Ollama". Implement in `base_agent._call_gemini` with a priority list of fallback models defined in `.env.example` as `GEMINI_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.0-flash-lite,gemini-2.0-flash`. Depends on the quota tracker above being implemented first.
+
 - Prompt injection detection — add input sanitisation in the researcher and analyst that detects and rejects retrieved content containing instruction-like patterns before prompt injection.
 - PII detection and filtering — add a pre-storage filter in the MCP vector store server that detects and redacts personally identifiable information before chunks are written to ChromaDB.
 - Multilingual support — detect document language before chunking, translate non-English content before embedding to improve retrieval quality across languages.

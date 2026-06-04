@@ -8,8 +8,10 @@ class ResearchAgent(BaseAgent):
             goal="Collect concise information from online sources",
             gemini_model="gemini-2.5-flash"
         )
+    
+    def run(self, prompt):
+        return self._call_ollama(prompt)
         
-
     def search(self, query, max_results=3, retries=3, delay=2):
         for attempt in range(retries):
             try:

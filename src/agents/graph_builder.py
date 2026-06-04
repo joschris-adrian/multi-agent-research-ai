@@ -11,6 +11,9 @@ class GraphBuilderAgent(BaseAgent):
             max_tokens=600,
             gemini_model="gemini-2.5-flash"
         )
+    
+    def run(self, prompt):
+        return self._call_ollama(prompt)
 
     def extract_entities(self, insights: str, topic: str) -> dict:
         prompt = f"""Read the following research insights about "{topic}" and extract entities.

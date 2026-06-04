@@ -238,9 +238,6 @@ def main():
     for server in SERVERS:
         if server["a2a_only"] and not args.a2a:
             continue
-        if server["name"] == "Ollama" and use_gemini:
-            print(f"  - Ollama skipped (LLM_PROVIDER=gemini)")
-            continue
         pid = start_server(server)
         if pid:
             pids[server["name"]] = pid
@@ -255,7 +252,10 @@ def main():
     print(f"  GraphQL: http://localhost:8000/graphql")
     if args.a2a:
         print(f"  A2A:     http://localhost:8004/health")
-    print(f"\n  LLM provider: {'gemini' if use_gemini else 'ollama'}")
+    if use_gemini:
+        print("\nStarting research system servers (Gemini mode — Ollama required for planner, researcher, graph builder)...")
+    else:
+        print("\nStarting research system servers (Ollama mode)...")
     print("\n  To stop all servers:        python start.py --stop")
     print("  To run pipeline (ollama):   python main.py")
     print("  To run pipeline (gemini):   python start.py --gemini && python main.py")

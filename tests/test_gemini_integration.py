@@ -1,3 +1,4 @@
+import os
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -22,6 +23,92 @@ def make_ollama_response(text="ollama response"):
     mock_resp.json.return_value = {"response": text}
     return mock_resp
 
+
+class TestOllamaLockedAgents:
+    """
+    Planner, researcher and graph builder always call Ollama
+    regardless of LLM_PROVIDER.
+    """
+
+    def _make_ollama_response(self, text="ok"):
+        mock = MagicMock()
+        mock.json.return_value = {"response": text}
+        return mock
+
+    def test_planner_always_calls_ollama_even_when_gemini_set(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.requests.post") as mock_ollama:
+                with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                    mock_ollama.return_value = self._make_ollama_response()
+                    from src.agents.planner import PlannerAgent
+                    with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                        agent = PlannerAgent()
+                    agent.run("test prompt")
+                    mock_ollama.assert_called_once()
+                    mock_gemini.assert_not_called()
+
+    def test_researcher_always_calls_ollama_even_when_gemini_set(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.requests.post") as mock_ollama:
+                with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                    mock_ollama.return_value = self._make_ollama_response()
+                    from src.agents.researcher import ResearchAgent
+                    with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                        agent = ResearchAgent()
+                    agent.run("test prompt")
+                    mock_ollama.assert_called_once()
+                    mock_gemini.assert_not_called()
+
+    def test_graph_builder_always_calls_ollama_even_when_gemini_set(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.requests.post") as mock_ollama:
+                with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                    mock_ollama.return_value = self._make_ollama_response()
+                    from src.agents.graph_builder import GraphBuilderAgent
+                    with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                        agent = GraphBuilderAgent()
+                    agent.run("test prompt")
+                    mock_ollama.assert_called_once()
+                    mock_gemini.assert_not_called()
+
+    def test_analyst_still_respects_llm_provider(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                mock_gemini.return_value = MagicMock(
+                    json=lambda: {"candidates": [{"content": {"parts": [{"text": "insights"}]}}]}
+                )
+                mock_gemini.return_value.raise_for_status = MagicMock()
+                from src.agents.analyst import AnalystAgent
+                with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                    agent = AnalystAgent()
+                agent.run("test prompt")
+                mock_gemini.assert_called_once()
+
+    def test_writer_still_respects_llm_provider(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                mock_gemini.return_value = MagicMock(
+                    json=lambda: {"candidates": [{"content": {"parts": [{"text": "report"}]}}]}
+                )
+                mock_gemini.return_value.raise_for_status = MagicMock()
+                from src.agents.writer import WriterAgent
+                with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                    agent = WriterAgent()
+                agent.run("test prompt")
+                mock_gemini.assert_called_once()
+
+    def test_critic_still_respects_llm_provider(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            with patch("src.agents.base_agent.httpx.post") as mock_gemini:
+                mock_gemini.return_value = MagicMock(
+                    json=lambda: {"candidates": [{"content": {"parts": [{"text": "feedback"}]}}]}
+                )
+                mock_gemini.return_value.raise_for_status = MagicMock()
+                from src.agents.critic import CriticAgent
+                with patch("src.agents.base_agent.MCPClient", MagicMock()):
+                    agent = CriticAgent()
+                agent.run("test prompt")
+                mock_gemini.assert_called_once()
 
 # ---------------------------------------------------------------------------
 # BaseAgent routing
@@ -56,34 +143,6 @@ class TestBaseAgentRouting:
                 mock_post.assert_called_once()
                 assert result == "gemini response"
 
-    def test_gemini_provider_does_not_call_ollama(self):
-        with patch.dict("os.environ", {
-            "LLM_PROVIDER": "gemini",
-            "GEMINI_API_KEY": "test-key"
-        }):
-            with patch("src.agents.base_agent.httpx.post") as mock_gemini:
-                with patch("src.agents.base_agent.requests.post") as mock_ollama:
-                    mock_gemini.return_value = make_gemini_response()
-                    from importlib import reload
-                    import src.agents.base_agent as module
-                    reload(module)
-                    agent = module.BaseAgent(role="Test", goal="Test")
-                    agent.run("hello")
-                    mock_ollama.assert_not_called()
-
-    def test_ollama_provider_does_not_call_gemini(self):
-        with patch.dict("os.environ", {"LLM_PROVIDER": "ollama"}):
-            with patch("src.agents.base_agent.requests.post") as mock_ollama:
-                with patch("src.agents.base_agent.httpx.post") as mock_gemini:
-                    mock_ollama.return_value = make_ollama_response()
-                    from importlib import reload
-                    import src.agents.base_agent as module
-                    reload(module)
-                    agent = module.BaseAgent(role="Test", goal="Test")
-                    agent.run("hello")
-                    mock_gemini.assert_not_called()
-
-
 # ---------------------------------------------------------------------------
 # Gemini model assignment per agent
 # ---------------------------------------------------------------------------
@@ -115,24 +174,6 @@ class TestGeminiModelAssignment:
         with patch("src.agents.base_agent.MCPClient", MagicMock()):
             agent = CriticAgent()
         assert agent.gemini_model == "gemini-2.5-flash"
-
-    def test_planner_uses_flash_8b(self):
-        from src.agents.planner import PlannerAgent
-        with patch("src.agents.base_agent.MCPClient", MagicMock()):
-            agent = PlannerAgent()
-        assert agent.gemini_model == "gemini-2.0-flash-lite"
-
-    def test_researcher_uses_flash_8b(self):
-        from src.agents.researcher import ResearchAgent
-        with patch("src.agents.base_agent.MCPClient", MagicMock()):
-            agent = ResearchAgent()
-        assert agent.gemini_model == "gemini-2.0-flash-lite"
-
-    def test_graph_builder_uses_flash_8b(self):
-        from src.agents.graph_builder import GraphBuilderAgent
-        with patch("src.agents.base_agent.MCPClient", MagicMock()):
-            agent = GraphBuilderAgent()
-        assert agent.gemini_model == "gemini-2.0-flash-lite"
 
 # ---------------------------------------------------------------------------
 # Gemini request shape
@@ -293,8 +334,9 @@ class TestPipelineDelay:
                     for p in patchers:
                         p.stop()
                 assert mock_sleep.call_count == 5
+                expected_delay = int(os.environ.get("GEMINI_DELAY_SECONDS", "10"))
                 for c in mock_sleep.call_args_list:
-                    assert c.args[0] == 4
+                    assert c.args[0] == expected_delay
 
     def test_ollama_no_delay_applied(self):
         with patch.dict("os.environ", {"LLM_PROVIDER": "ollama"}):

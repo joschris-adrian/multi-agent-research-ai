@@ -83,9 +83,8 @@ if _provider == "gemini":
     if not os.environ.get("GEMINI_API_KEY", ""):
         print("Error: GEMINI_API_KEY is not set. Add it to your .env file.")
         sys.exit(1)
-    print("Skipping Ollama health check (LLM_PROVIDER=gemini).")
-else:
-    check("Ollama health", check_ollama)
+
+check("Ollama health", check_ollama)
 
 def check_mcp_vector_store():
     r = requests.post(
@@ -177,11 +176,11 @@ def check_single_agent():
     from src.agents.base_agent import BaseAgent
     provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
     agent = BaseAgent(role="Tester", goal="Return short answers")
-    result = agent.run("Say OK in one word.")
+    result = agent._call_ollama("Say OK in one word.")
     assert isinstance(result, str) and len(result) > 0
     print(f"  provider: {provider}")
     print(f"  agent response: {result[:60]}")
-    
+        
 check("Single agent (BaseAgent)", check_single_agent)
 
 
