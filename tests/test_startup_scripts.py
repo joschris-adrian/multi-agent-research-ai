@@ -172,7 +172,7 @@ class TestStartPy:
         args.stop = stop
         return args
 
-    def test_gemini_flag_skips_ollama(self):
+    def test_gemini_flag_still_starts_ollama(self):
         with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
             import start
             started = []
@@ -185,7 +185,22 @@ class TestStartPy:
                         mock_parser.return_value.parse_args.return_value = \
                             self._make_args(gemini=True)
                         start.main()
-            assert "Ollama" not in started
+            assert "Ollama" in started
+
+    def test_env_gemini_without_flag_still_starts_ollama(self):
+        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
+            import start
+            started = []
+            def mock_start(server):
+                started.append(server["name"])
+                return None
+            with patch("start.start_server", side_effect=mock_start):
+                with patch("start.save_pids"):
+                    with patch("start.argparse.ArgumentParser") as mock_parser:
+                        mock_parser.return_value.parse_args.return_value = \
+                            self._make_args(gemini=False)
+                        start.main()
+            assert "Ollama" in started
 
     def test_ollama_mode_includes_ollama(self):
         with patch.dict("os.environ", {"LLM_PROVIDER": "ollama"}):
@@ -224,17 +239,4 @@ class TestStartPy:
                     start.main()
             assert exc.value.code == 1
 
-    def test_env_gemini_without_flag_skips_ollama(self):
-        with patch.dict("os.environ", {"LLM_PROVIDER": "gemini", "GEMINI_API_KEY": "test-key"}):
-            import start
-            started = []
-            def mock_start(server):
-                started.append(server["name"])
-                return None
-            with patch("start.start_server", side_effect=mock_start):
-                with patch("start.save_pids"):
-                    with patch("start.argparse.ArgumentParser") as mock_parser:
-                        mock_parser.return_value.parse_args.return_value = \
-                            self._make_args(gemini=False)
-                        start.main()
-            assert "Ollama" not in started
+    

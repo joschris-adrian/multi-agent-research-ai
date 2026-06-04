@@ -9,6 +9,62 @@ import json
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="Research Assistant", layout="wide")
+
+# ---------------------------------------------------------------------------
+# Sidebar — LLM provider configuration
+# ---------------------------------------------------------------------------
+from ui.provider_config import load_provider_config, save_provider_config, validate_gemini_key
+
+with st.sidebar:
+    st.header("LLM Provider")
+
+    config = load_provider_config()
+    current_provider = config["provider"]
+    current_key = config["api_key"]
+
+    provider = st.radio(
+        "Select provider",
+        options=["ollama", "gemini"],
+        index=0 if current_provider == "ollama" else 1,
+        format_func=lambda x: "Ollama (local)" if x == "ollama" else "Gemini (Google AI Studio)",
+    )
+
+    api_key_input = ""
+    if provider == "gemini":
+        st.caption("Analyst, writer and critic use gemini-2.5-flash. Planner, researcher and graph builder always use Ollama.")
+        if current_key:
+            st.success("API key stored.")
+            if st.checkbox("Replace API key"):
+                api_key_input = st.text_input("New Gemini API key", type="password")
+        else:
+            st.warning("No API key stored.")
+            api_key_input = st.text_input("Gemini API key", type="password")
+    else:
+        st.caption("Runs fully locally. Ollama must be running with llama3.2 pulled.")
+
+    if st.button("Save provider settings"):
+        if provider == "gemini":
+            key_to_save = api_key_input or current_key
+            if not key_to_save:
+                st.error("Please enter a Gemini API key.")
+            else:
+                with st.spinner("Validating API key..."):
+                    valid, error = validate_gemini_key(key_to_save)
+                if valid:
+                    save_provider_config("gemini", key_to_save)
+                    st.success("Saved. Restart the pipeline server to apply changes.")
+                else:
+                    st.error(f"Key validation failed: {error}")
+        else:
+            save_provider_config("ollama")
+            st.success("Saved. Restart the pipeline server to apply changes.")
+
+    st.divider()
+    st.caption(f"Active provider: **{current_provider}**")
+    if current_provider == "gemini":
+        remaining_note = "20 requests/day free tier (gemini-2.5-flash)"
+        st.caption(remaining_note)
+
 st.title("Multi-Agent Research Assistant")
 st.caption("Six AI agents collaborate to research your question, retrieve academic papers, build a knowledge graph and write a structured report.")
 
@@ -98,6 +154,12 @@ if st.button("Run"):
 
         st.subheader("Report")
         st.markdown(result["report"])
+        st.download_button(
+            label="Download report",
+            data=result["report"],
+            file_name=f"research_report_{question[:30].replace(' ', '_')}.md",
+            mime="text/markdown"
+        )
 
         entities = result.get("entities", {})
         if any(entities.values()):
