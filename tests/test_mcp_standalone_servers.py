@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
+pytest.importorskip("uvicorn", reason="uvicorn not installed")
 
 
 # --- vector store standalone server ---

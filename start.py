@@ -27,6 +27,7 @@ import time
 import requests
 import json
 from pathlib import Path
+from dotenv import load_dotenv
 
 PID_FILE = ".server_pids.json"
 
@@ -210,21 +211,35 @@ def stop_servers():
 
 
 def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Start all research system servers")
     parser.add_argument("--a2a", action="store_true", help="Also start the A2A agent server")
     parser.add_argument("--stop", action="store_true", help="Stop all running servers")
+    parser.add_argument("--gemini", action="store_true", help="Use Gemini instead of Ollama (skips starting Ollama)")
     args = parser.parse_args()
 
     if args.stop:
         stop_servers()
         return
 
-    print("\nStarting research system servers...")
+    use_gemini = args.gemini or os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini"
+    if use_gemini:
+        if not os.environ.get("GEMINI_API_KEY", ""):
+            print("Error: GEMINI_API_KEY is not set. Add it to your .env file.")
+            sys.exit(1)
+        os.environ["LLM_PROVIDER"] = "gemini"
+        print("\nStarting research system servers (Gemini mode — Ollama skipped)...")
+    else:
+        os.environ["LLM_PROVIDER"] = "ollama"
+        print("\nStarting research system servers (Ollama mode)...")
     print("=" * 50)
 
     pids = {}
     for server in SERVERS:
         if server["a2a_only"] and not args.a2a:
+            continue
+        if server["name"] == "Ollama" and use_gemini:
+            print(f"  - Ollama skipped (LLM_PROVIDER=gemini)")
             continue
         pid = start_server(server)
         if pid:
@@ -240,10 +255,12 @@ def main():
     print(f"  GraphQL: http://localhost:8000/graphql")
     if args.a2a:
         print(f"  A2A:     http://localhost:8004/health")
-    print("\n  To stop all servers: python start.py --stop")
-    print("  To run pipeline:     python main.py")
+    print(f"\n  LLM provider: {'gemini' if use_gemini else 'ollama'}")
+    print("\n  To stop all servers:        python start.py --stop")
+    print("  To run pipeline (ollama):   python main.py")
+    print("  To run pipeline (gemini):   python start.py --gemini && python main.py")
     if args.a2a:
-        print("  To run A2A pipeline: python run_a2a.py")
+        print("  To run A2A pipeline:        python run_a2a.py")
     print()
 
 

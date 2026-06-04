@@ -2,7 +2,7 @@
 
 I built this to explore how multiple LLM agents can collaborate on a research task - each one handling a specific job rather than dumping everything into a single prompt.
 
-The system runs fully locally using Ollama, so no API keys or costs involved.
+The system runs locally using Ollama by default, with optional Google Gemini support via the free tier on Google AI Studio.
 
 ---
 
@@ -31,7 +31,7 @@ If the MCP web search server rate-limits or returns nothing, the researcher retr
 
 | Component       | Technology                      |
 |-----------------|---------------------------------|
-| LLM             | Ollama (llama3.2)               |
+| LLM             | Ollama (llama3.2) or Google Gemini (gemini-2.5-flash) |
 | Agent pipeline  | Custom multi-agent architecture |
 | Web search      | DuckDuckGo via `ddgs` + MCP     |
 | Vector memory   | ChromaDB via MCP                |
@@ -150,13 +150,19 @@ python main.py
 # start all servers (Ollama, MCP servers, FastAPI, Streamlit)
 python start.py
 
+# start with Gemini instead of Ollama (Ollama not required)
+python start.py --gemini
+
 # start including A2A pipeline server
 python start.py --a2a
+
+# start with Gemini and A2A
+python start.py --gemini --a2a
 
 # stop all servers started by start.py
 python start.py --stop
 ```
-Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop.
+Servers are started as background processes with health checks. PIDs are tracked in `.server_pids.json` and cleaned up on stop. If `LLM_PROVIDER=gemini` is already set in `.env`, `python start.py` skips Ollama automatically without needing the `--gemini` flag.
 
 
 **Option 2b - API + UI (eight terminals):**
@@ -222,6 +228,74 @@ uvicorn src.a2a.agent_server:app --port 8004 --reload
 Then use `A2AResearchSystem` instead of `MultiAgentResearchSystem` in `main.py`.
 
 ---
+
+## Using Gemini instead of Ollama
+
+By default the pipeline runs locally via Ollama. You can switch to Google Gemini
+instead — the free tier on Google AI Studio is sufficient for normal use.
+
+### Get a Gemini API key
+
+1. Go to https://aistudio.google.com/app/apikey
+2. Sign in with a Google account
+3. Click **Create API key**
+4. Copy the key
+
+### Configure the project
+
+Open `.env` and set:
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
+
+Leave `OLLAMA_HOST` and `OLLAMA_MODEL` as they are — they are ignored when
+`LLM_PROVIDER=gemini`.
+
+### Test your connection
+
+```bash
+python scripts/test_gemini_connection.py
+```
+
+Expected output:
+```
+Testing Gemini connection...
+Model: gemini-2.5-flash
+Key:   AIzaSyAB********
+Response: OK
+Connection successful.
+```
+
+### Model assignment
+
+| Agent | Gemini model | Reason |
+|---|---|---|
+| Analyst | gemini-2.5-flash | Higher quality insight extraction |
+| Writer | gemini-2.5-flash | Better prose generation |
+| Critic | gemini-2.5-flash | More precise feedback |
+| Planner | gemini-2.0-flash-lite | Simple task breakdown |
+| Researcher | gemini-2.0-flash-lite | Query extraction only |
+| Graph Builder | gemini-2.0-flash-lite | Structured JSON output |
+
+### Free tier limits
+
+The free tier allows 15 requests per minute. The pipeline automatically adds a
+10-second delay between agents when `LLM_PROVIDER=gemini` to stay within this
+limit. You can tune this via `GEMINI_DELAY_SECONDS` in your `.env` if needed.
+
+If you hit rate limit errors despite the delay, increase the delay by setting
+`GEMINI_DELAY_SECONDS` in your `.env`:
+GEMINI_DELAY_SECONDS=6
+
+Then in `agent_pipeline.py` replace the hardcoded `4` with:
+
+```python
+int(os.environ.get("GEMINI_DELAY_SECONDS", "4"))
+```
+
+### Switching back to Ollama
+
+Set `LLM_PROVIDER=ollama` in `.env` (or remove the line entirely) and ensure
+`ollama serve` is running. No other changes are needed.
 
 ## Fine-tuning using PEFT(LoRA)
 
@@ -425,6 +499,8 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Quick Hits
 
+- Lock planner, researcher, and graph builder to Ollama regardless of `LLM_PROVIDER` — these agents perform simple task breakdown, query extraction, and JSON entity extraction where model quality makes no measurable difference to pipeline output. Override `run` in each of the three agent files to call `self._call_ollama(prompt)` directly instead of `self.run(prompt)`, bypassing the provider check in `BaseAgent`. This reduces Gemini API calls from 6 per pipeline run to 3 (analyst, writer, critic only), halving rate limit consumption without any visible quality loss. Three one-line changes, one per agent file. Requires Ollama to be running even when `LLM_PROVIDER=gemini` — update the README and `run_all.py` Gemini section to note this.
+- Make Gemini model names configurable via environment variables — replace the hardcoded `gemini-2.5-flash` in `analyst.py`, `writer.py`, and `critic.py` with `os.environ.get("GEMINI_MODEL_QUALITY", "gemini-2.5-flash")`, and the hardcoded `gemini-2.0-flash-lite` in `planner.py`, `researcher.py`, and `graph_builder.py` with `os.environ.get("GEMINI_MODEL_LITE", "gemini-2.0-flash-lite")`. Replace the hardcoded `4` delay in `agent_pipeline.py` with `int(os.environ.get("GEMINI_DELAY_SECONDS", "4"))`. All three variables are already documented in `.env.example`. Six one-line changes across six agent files plus one line in `agent_pipeline.py`.
 - Fix start.py --stop to kill servers by port rather than by saved PID — use netstat on Windows and lsof on Mac/Linux to find the PID currently occupying each known port (8000, 8001, 8002, 8003, 8501, 8004) and kill it directly, so --stop reliably terminates all servers regardless of whether their PIDs were saved in .server_pids.json. Keep PID-based cleanup as a fallback for any ports not found via netstat.
 - Fix silent exception swallowing in MCPClient.call_tool — add a print or logger call before returning the empty list so failures are distinguishable from genuine empty results. One line change in mcp_client.py.
 - Fix the SERVER_PORTS fallback in MCPClient.call_tool — remove the default fallback to 8001 and raise a KeyError or log an explicit warning when an unrecognised server name is passed, so misconfigured calls fail loudly rather than silently routing to the wrong server. One line change in mcp_client.py.
@@ -441,7 +517,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 ### Bigger Changes
 
 
-- Google Gemini integration — add configurable LLM provider support in base_agent.py via LLM_PROVIDER environment variable, switching between Ollama (local, free) and Gemini API (cloud, free tier via Google AI Studio). Assign gemini-2.0-flash to analyst, writer and critic where output quality matters, and gemini-1.5-flash-8b to planner, researcher and graph builder where the task is simple enough that a smaller model suffices. Add a 4-second inter-agent delay when using Gemini to stay within the free tier 15 RPM limit. No agent, pipeline or MCP code changes required beyond base_agent.py and per-agent model defaults.
+- Provider switching from the Streamlit UI — add a sidebar selector in `streamlit_app.py` letting the user choose between Ollama and Gemini before running the pipeline, and a save button that writes the chosen `LLM_PROVIDER` (and optionally `GEMINI_API_KEY`) back to `.env` using `python-dotenv`'s `set_key` function. On load, read the current value from `.env` via `dotenv_values()` and pre-select the active provider so the UI reflects the real state. If Gemini is selected and no key is stored, show a password input for the key and validate it with a test call to the Gemini API before saving. Changes confined to `ui/streamlit_app.py` and a new `ui/provider_config.py` helper that wraps `dotenv.set_key` and the validation call, keeping the UI code clean. No pipeline or agent changes required.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
 - Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.

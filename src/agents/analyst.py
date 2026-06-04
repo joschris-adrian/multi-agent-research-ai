@@ -5,7 +5,8 @@ class AnalystAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             role="Data Analyst",
-            goal="Extract meaningful insights from research"
+            goal="Extract meaningful insights from research",
+            gemini_model="gemini-2.5-flash"
         )
 
     def analyze(self, documents, query):

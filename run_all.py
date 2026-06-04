@@ -14,6 +14,7 @@ Requirements:
 import sys
 import os
 import requests
+from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -25,6 +26,16 @@ NEO4J_ERROR = "7687"
 def is_neo4j_error(e):
     return NEO4J_ERROR in str(e)
 
+
+AGENT_CHECKS = {
+    "Single agent (BaseAgent)",
+    "Planner agent",
+    "Analyst agent",
+    "Graph builder agent",
+    "Writer agent (with entities)",
+    "Critic agent",
+    "Full pipeline (all agents)",
+}
 
 def check(name, fn):
     print(f"\n{'='*55}")
@@ -42,14 +53,39 @@ def check(name, fn):
             print(f"  FAIL: {name}")
             print(f"  {e}")
             results.append((name, "FAIL", str(e)))
+    finally:
+        if _provider == "gemini" and name in AGENT_CHECKS:
+            delay = int(os.environ.get("GEMINI_DELAY_SECONDS", "10"))
+            print(f"  (waiting {delay}s for Gemini rate limit...)")
+            import time
+            time.sleep(delay)
 
+import time as _time
+
+_original_check = check
+
+def check(name, fn):
+    if _provider == "gemini" and name in AGENT_CHECKS:
+        delay = int(os.environ.get("GEMINI_DELAY_SECONDS", "10"))
+        print(f"  (pre-call delay {delay}s for Gemini rate limit...)")
+        _time.sleep(delay)
+    _original_check(name, fn)  
+              
 def check_ollama():
     r = requests.get("http://localhost:11434", timeout=5)
     assert r.status_code == 200, f"ollama returned {r.status_code}"
     print("  ollama is running")
 
-check("Ollama health", check_ollama)
-
+load_dotenv()
+_provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
+print(f"\nLLM provider: {_provider}")
+if _provider == "gemini":
+    if not os.environ.get("GEMINI_API_KEY", ""):
+        print("Error: GEMINI_API_KEY is not set. Add it to your .env file.")
+        sys.exit(1)
+    print("Skipping Ollama health check (LLM_PROVIDER=gemini).")
+else:
+    check("Ollama health", check_ollama)
 
 def check_mcp_vector_store():
     r = requests.post(
@@ -139,11 +175,13 @@ check("A2A agent server", check_a2a_server)
 
 def check_single_agent():
     from src.agents.base_agent import BaseAgent
+    provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
     agent = BaseAgent(role="Tester", goal="Return short answers")
     result = agent.run("Say OK in one word.")
     assert isinstance(result, str) and len(result) > 0
+    print(f"  provider: {provider}")
     print(f"  agent response: {result[:60]}")
-
+    
 check("Single agent (BaseAgent)", check_single_agent)
 
 

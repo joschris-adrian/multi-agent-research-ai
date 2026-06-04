@@ -9,6 +9,7 @@ class GraphBuilderAgent(BaseAgent):
             goal="Extract structured entities and relationships from research insights",
             temperature=0.1,  # low temperature for consistent JSON output
             max_tokens=600,
+            gemini_model="gemini-2.5-flash"
         )
 
     def extract_entities(self, insights: str, topic: str) -> dict:

@@ -6,7 +6,8 @@ class CriticAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             role="Quality Reviewer",
-            goal="Evaluate reports for clarity, accuracy, and completeness"
+            goal="Evaluate reports for clarity, accuracy, and completeness",
+            gemini_model="gemini-2.5-flash"
         )
 
     def review(self, report):

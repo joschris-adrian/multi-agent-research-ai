@@ -6,7 +6,8 @@ class PlannerAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             role="Task Planner",
-            goal="Break complex research questions into step-by-step research tasks"
+            goal="Break complex research questions into step-by-step research tasks",
+            gemini_model="gemini-2.5-flash"
         )
 
     def plan(self, question):

@@ -13,13 +13,17 @@ Requirements:
     - uvicorn src.a2a.agent_server:app --port 8004 --reload
 """
 
+import os
 import argparse
 import requests
 import sys
 
 def check_servers():
-    servers = [
-        ("Ollama", "http://localhost:11434", "GET"),
+    provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
+    servers = []
+    if provider != "gemini":
+        servers.append(("Ollama", "http://localhost:11434", "GET"))
+    servers += [
         ("Vector store MCP", "http://localhost:8001/vector_store/search", "POST"),
         ("Web search MCP", "http://localhost:8002/web_search/search", "POST"),
         ("arXiv MCP", "http://localhost:8003/arxiv/search", "POST"),
@@ -54,6 +58,20 @@ def check_servers():
     print("  All servers ready.\n")
 
 
+def check_provider():
+    from dotenv import load_dotenv
+    load_dotenv()
+    provider = os.environ.get("LLM_PROVIDER", "ollama").lower()
+    print(f"LLM provider: {provider}")
+    if provider == "gemini":
+        if not os.environ.get("GEMINI_API_KEY", ""):
+            print("Error: GEMINI_API_KEY is not set. Add it to your .env file.")
+            sys.exit(1)
+        print("Note: 4-second inter-agent delay active (Gemini free tier limit).")
+    else:
+        print("Note: Ollama must be running locally (ollama serve).")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run the A2A dynamic research pipeline"
@@ -75,6 +93,7 @@ def main():
             print("No question provided. Exiting.")
             sys.exit(1)
 
+    check_provider()
     check_servers()
 
     from src.a2a.a2a_pipeline import A2AResearchSystem

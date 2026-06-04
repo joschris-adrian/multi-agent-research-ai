@@ -1,3 +1,5 @@
+import os
+import time
 from src.agents.planner import PlannerAgent
 from src.agents.researcher import ResearchAgent
 from src.agents.analyst import AnalystAgent
@@ -5,7 +7,7 @@ from src.agents.writer import WriterAgent
 from src.agents.critic import CriticAgent
 from src.agents.graph_builder import GraphBuilderAgent
 from src.graph.knowledge_graph import KnowledgeGraph
-
+from src.agents.base_agent import LLM_PROVIDER
 
 class MultiAgentResearchSystem:
     def __init__(self):
@@ -23,20 +25,28 @@ class MultiAgentResearchSystem:
         print("\n[planner]")
         tasks = self.planner.plan(question)
         print(tasks)
+        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+            time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
 
         print("\n[researcher]")
         search_query = self.researcher.extract_query(tasks, question)
         documents = self.researcher.search(search_query)
         print(f"got {len(documents)} documents")
+        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+            time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
 
         print("\n[analyst]")
         insights = self.analyst.analyze(documents, question)
         print(insights)
+        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+            time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
 
         print("\n[graph builder]")
         try:
             self.kg.add_topic(question)
             entities = self.graph_builder.extract_entities(insights, question)
+            if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+                time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
 
             for company in entities.get("companies", []):
                 self.kg.add_entity(company, "Company")
@@ -65,6 +75,8 @@ class MultiAgentResearchSystem:
         print("\n[writer]")
         report = self.writer.write_report(insights, entities)
         print(report)
+        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+            time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
 
         print("\n[critic]")
         feedback = self.critic.review(report)

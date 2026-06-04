@@ -5,7 +5,8 @@ class ResearchAgent(BaseAgent):
     def __init__(self):
         super().__init__(
             role="Research Specialist",
-            goal="Collect concise information from online sources"
+            goal="Collect concise information from online sources",
+            gemini_model="gemini-2.5-flash"
         )
         
 

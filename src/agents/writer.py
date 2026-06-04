@@ -11,6 +11,7 @@ class WriterAgent(BaseAgent):
             goal="Write a well-structured research report",
             temperature=0.8,
             max_tokens=800,
+            gemini_model="gemini-2.5-flash"
         )
         self._finetuned = None
 
