@@ -14,7 +14,11 @@ import asyncio
 
 import json
 
-
+from src.scheduler.subscription_store import (
+    add_subscription, list_subscriptions, get_subscription,
+    pause_subscription, resume_subscription, delete_subscription
+)
+from src.scheduler.scheduler import run_due_subscriptions
 
 app = FastAPI(
     title="Multi-Agent Research API",
@@ -129,3 +133,63 @@ async def research_stream(request: ResearchRequest):
         })
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+class SubscriptionRequest(BaseModel):
+    topic: str
+    frequency: str = "weekly"      # "daily" | "weekly" | "monthly"
+    delivery_method: str = "log"   # "email" | "slack" | "discord" | "log"
+    delivery_target: str = ""      # email address or webhook URL
+
+
+@app.post("/subscriptions")
+def create_subscription(request: SubscriptionRequest):
+    sub = add_subscription(
+        topic=request.topic,
+        frequency=request.frequency,
+        delivery_method=request.delivery_method,
+        delivery_target=request.delivery_target,
+    )
+    return sub
+
+
+@app.get("/subscriptions")
+def get_subscriptions():
+    return list_subscriptions()
+
+
+@app.get("/subscriptions/{sub_id}")
+def get_subscription_by_id(sub_id: str):
+    sub = get_subscription(sub_id)
+    if not sub:
+        return JSONResponse(status_code=404, content={"error": "subscription not found"})
+    return sub
+
+
+@app.post("/subscriptions/{sub_id}/pause")
+def pause(sub_id: str):
+    ok = pause_subscription(sub_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"error": "subscription not found"})
+    return {"status": "paused"}
+
+
+@app.post("/subscriptions/{sub_id}/resume")
+def resume(sub_id: str):
+    ok = resume_subscription(sub_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"error": "subscription not found"})
+    return {"status": "resumed"}
+
+
+@app.delete("/subscriptions/{sub_id}")
+def delete(sub_id: str):
+    ok = delete_subscription(sub_id)
+    if not ok:
+        return JSONResponse(status_code=404, content={"error": "subscription not found"})
+    return {"status": "deleted"}
+
+
+@app.post("/subscriptions/run")
+async def run_subscriptions(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_due_subscriptions)
+    return {"status": "scheduler triggered"}

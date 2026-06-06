@@ -71,6 +71,9 @@ class MultiAgentResearchSystem:
             print(f"[graph builder] neo4j unavailable, skipping: {e}")
             entities = {"companies": [], "trends": [], "technologies": [], "relationships": []}
 
+        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+            time.sleep(int(os.environ.get("GEMINI_DELAY_SECONDS", "10")))
+
         # writer now receives entities from the knowledge graph
         print("\n[writer]")
         report = self.writer.write_report(insights, entities)

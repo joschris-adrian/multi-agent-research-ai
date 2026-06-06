@@ -1,0 +1,52 @@
+[
+  {
+    "id": "solar_energy_1780595033564",
+    "topic": "solar energy",
+    "frequency": "weekly",
+    "delivery_method": "log",
+    "delivery_target": "",
+    "last_run": null,
+    "paused": false,
+    "created_at": "2026-06-04T23:13:53.564098"
+  },
+  {
+    "id": "solar_energy_1780595033636",
+    "topic": "solar energy",
+    "frequency": "weekly",
+    "delivery_method": "log",
+    "delivery_target": "",
+    "last_run": null,
+    "paused": false,
+    "created_at": "2026-06-04T23:13:53.636873"
+  },
+  {
+    "id": "solar_energy_1780595033683",
+    "topic": "solar energy",
+    "frequency": "weekly",
+    "delivery_method": "log",
+    "delivery_target": "",
+    "last_run": null,
+    "paused": false,
+    "created_at": "2026-06-04T23:13:53.683194"
+  },
+  {
+    "id": "solar_energy_1780595033736",
+    "topic": "solar energy",
+    "frequency": "weekly",
+    "delivery_method": "log",
+    "delivery_target": "",
+    "last_run": null,
+    "paused": true,
+    "created_at": "2026-06-04T23:13:53.736703"
+  },
+  {
+    "id": "solar_energy_1780595033777",
+    "topic": "solar energy",
+    "frequency": "weekly",
+    "delivery_method": "log",
+    "delivery_target": "",
+    "last_run": null,
+    "paused": false,
+    "created_at": "2026-06-04T23:13:53.777828"
+  }
+]

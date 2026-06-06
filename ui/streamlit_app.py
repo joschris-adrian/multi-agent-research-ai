@@ -52,12 +52,12 @@ with st.sidebar:
                     valid, error = validate_gemini_key(key_to_save)
                 if valid:
                     save_provider_config("gemini", key_to_save)
-                    st.success("Saved. Restart the pipeline server to apply changes.")
+                    st.success("Saved. Takes effect on the next pipeline run.")
                 else:
-                    st.error(f"Key validation failed: {error}")
+                    save_provider_config("ollama")
+                    st.success("Saved. Takes effect on the next pipeline run.")
         else:
             save_provider_config("ollama")
-            st.success("Saved. Restart the pipeline server to apply changes.")
 
     st.divider()
     st.caption(f"Active provider: **{current_provider}**")

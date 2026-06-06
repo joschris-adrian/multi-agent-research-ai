@@ -14,7 +14,7 @@ ARXIV_API_URL = "https://export.arxiv.org/api/query"
 class ArxivRequest(BaseModel):
     topic: str
     max_results: int = 5
-
+    submitted_after: str = ""  # ISO date string e.g. "2024-01-01"
 
 def parse_arxiv_response(xml_text: str) -> list:
     ns = {"atom": "http://www.w3.org/2005/Atom"}
@@ -35,10 +35,12 @@ def parse_arxiv_response(xml_text: str) -> list:
     return documents
 
 
-def _fetch_arxiv(topic: str, max_results: int) -> list:
+def _fetch_arxiv(topic: str, max_results: int, submitted_after: str = "") -> list:
     topic = topic.strip()
     topic_quoted = f'"{topic}"'
     search_query = f"ti:{topic_quoted} OR abs:{topic_quoted}"
+    if submitted_after:
+        search_query += f" AND submittedDate:[{submitted_after.replace('-', '')}000000 TO 99991231235959]"
     encoded_query = urllib.parse.quote(search_query)
     url = (
         f"{ARXIV_API_URL}"
@@ -62,7 +64,7 @@ def _fetch_arxiv(topic: str, max_results: int) -> list:
 @app.post("/arxiv/search")
 def search(request: ArxivRequest):
     try:
-        documents = _fetch_arxiv(request.topic, request.max_results)
+        documents = _fetch_arxiv(request.topic, request.max_results, request.submitted_after)
         return {"result": documents}
     except Exception as e:
         print(f"[arxiv_server] search failed: {e}")
@@ -70,15 +72,14 @@ def search(request: ArxivRequest):
 
 
 @mcp.tool()
-def mcp_arxiv_search(topic: str, max_results: int = 5) -> str:
+def mcp_arxiv_search(topic: str, max_results: int = 5, submitted_after: str = "") -> str:
     """Search arXiv for recent academic papers sorted by submission date."""
     try:
-        documents = _fetch_arxiv(topic, max_results)
+        documents = _fetch_arxiv(topic, max_results, submitted_after)
         return str(documents)
     except Exception as e:
         print(f"[arxiv_server] mcp search failed: {e}")
         return str([])
-
 
 app.mount("/", mcp.streamable_http_app())
 

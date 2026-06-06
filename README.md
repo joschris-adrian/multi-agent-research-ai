@@ -61,7 +61,8 @@ multi-agent-research-ai/
 ├── Dockerfile.api
 ├── Dockerfile.ui
 ├── scripts/
-│   └── supercharge.py      # Bulk ingest documents into ChromaDB without running pipeline
+│   ├── supercharge.py          # Bulk ingest documents into ChromaDB without running pipeline
+│   └── run_subscriptions.py    # CLI trigger for the subscription scheduler
 │
 ├── src/
 │   ├── agents/
@@ -98,8 +99,12 @@ multi-agent-research-ai/
 │   │   ├── evaluate.py         # Multi-agent vs single-agent comparison
 │   │   ├── evaluator.py        # LLM-as-judge scoring
 │   │   └── baseline.py         # Single prompt baseline
+│   ├── scheduler/
+│   │   ├── scheduler.py            # Checks due subscriptions and runs the pipeline
+│   │   ├── subscription_store.py   # JSON-backed subscription persistence
+│   │   └── delivery.py             # Email, Slack and Discord delivery
 │   └── workflow/
-│       └── agent_pipeline.py   # Wires all agents together
+│       └── agent_pipeline.py       # Wires all agents together
 │
 ├── training/
 │   ├── generate_training_data.py  # Auto-generates examples using your agents
@@ -301,6 +306,91 @@ analyst, writer and critic call Gemini.
 Set `LLM_PROVIDER=ollama` in `.env` (or remove the line entirely). No other
 changes are needed.
 
+## Research topic subscriptions
+
+Subscribe to a topic and receive a freshly generated report on a configurable
+schedule via email, Slack, or Discord.
+
+### Manage subscriptions via API
+
+```bash
+# subscribe to a topic
+curl -X POST http://localhost:8000/subscriptions \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "renewable energy", "frequency": "weekly", "delivery_method": "email", "delivery_target": "you@example.com"}'
+
+# list subscriptions
+curl http://localhost:8000/subscriptions
+
+# pause a subscription
+curl -X POST http://localhost:8000/subscriptions/{id}/pause
+
+# resume a subscription
+curl -X POST http://localhost:8000/subscriptions/{id}/resume
+
+# delete a subscription
+curl -X DELETE http://localhost:8000/subscriptions/{id}
+
+# trigger the scheduler manually
+curl -X POST http://localhost:8000/subscriptions/run
+```
+
+Or run the scheduler directly from the CLI:
+```bash
+python scripts/run_subscriptions.py
+```
+
+The CLI script checks all subscriptions and runs any that are due. It is safe to run repeatedly — subscriptions that are not yet due are skipped silently. Use this for manual testing or for wiring into a cron job or Windows Task Scheduler rather than relying on the API trigger.
+
+To test the full subscription flow end to end without waiting for a scheduled interval, create a subscription with `"frequency": "daily"` and `"delivery_method": "log"`, then immediately run:
+
+```bash
+python scripts/run_subscriptions.py
+```
+
+The report will be printed to stdout. Switch `delivery_method` to `"email"`, `"slack"`, or `"discord"` and set the appropriate credentials in `.env` when ready to use live delivery.
+
+### Email delivery setup (Gmail)
+
+1. Enable 2-Step Verification at https://myaccount.google.com/security
+2. Generate an app password at https://myaccount.google.com/apppasswords
+3. Add to `.env`:
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_gmail_address@gmail.com
+SMTP_PASSWORD=xxxx xxxx xxxx xxxx
+
+Other providers (Outlook, Yahoo, SendGrid) work the same way — see their
+SMTP settings and use port 587 with your credentials or API key.
+
+### Slack and Discord delivery
+
+Pass a webhook URL as `delivery_target`:
+```bash
+# Slack — create a webhook at https://api.slack.com/messaging/webhooks
+# Discord — Server Settings > Integrations > Webhooks > New Webhook
+
+curl -X POST http://localhost:8000/subscriptions \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "AI agents", "frequency": "weekly", "delivery_method": "slack", "delivery_target": "https://hooks.slack.com/services/..."}'
+```
+
+### Scheduling automatically
+
+To run the scheduler on a fixed schedule without manual triggers, add a cron
+job (Linux/Mac) or Task Scheduler entry (Windows):
+
+```bash
+# Linux/Mac — run every day at 8am
+0 8 * * * cd /path/to/project && python scripts/run_subscriptions.py
+
+# Windows Task Scheduler — action: program
+python scripts/run_subscriptions.py
+```
+
+The scheduler only runs subscriptions that are due based on their configured
+frequency — running it daily is safe even for weekly subscriptions.
 
 ## Fine-tuning using PEFT(LoRA)
 
@@ -498,6 +588,9 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - The reranker model (`cross-encoder/ms-marco-MiniLM-L-6-v2`) loads on first use and adds ~100-200ms per search on CPU. If unavailable, the system falls back to cosine similarity scoring automatically.
 - The SSE stream runs each agent sequentially in a thread executor — if one agent is slow (e.g. writer with a large context), the stream will pause at that step with no intermediate updates until the agent completes.
 - The Gemini free tier allows 20 requests per day per model on gemini-2.5-flash. With only the analyst, writer and critic calling Gemini (3 calls per pipeline run), this gives approximately 6 full pipeline runs per day before hitting the daily limit. Running `run_all.py` with Gemini consumes 7 calls in a single pass due to individual agent checks, so no more than 2-3 full verification runs per day are possible on the free tier. Enable billing on Google AI Studio for significantly higher limits.
+- The subscription scheduler has no built-in recurring trigger — it must be invoked manually via `python scripts/run_subscriptions.py` or the `/subscriptions/run` API endpoint, or wired into an external scheduler (cron, Windows Task Scheduler, APScheduler). Running it more frequently than the subscription interval is safe since due-checking skips subscriptions that are not yet due.
+- Subscription reports are delivered as plain text. Markdown formatting in the report is preserved in the payload but may not render in email clients unless the delivery helper is extended to send `text/html` with a markdown-to-HTML conversion step.
+- Subscriptions inherit the global `LLM_PROVIDER` setting from `.env` at the time the scheduler runs — there is no per-subscription provider setting. If `LLM_PROVIDER` is switched mid-day (e.g. to fall back to Ollama after hitting Gemini quota), any subscription that fires during that window will use Ollama for that run.
 
 ---
 
@@ -505,6 +598,7 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 
 ### Quick Hits
 
+- Make the Streamlit provider switcher take effect without a server restart — replace `load_dotenv()` in `base_agent.py` with a live `dotenv_values(".env").get("LLM_PROVIDER", "ollama")` read inside the `run` method so every pipeline call re-reads the provider from `.env` directly, picking up sidebar saves immediately. Alternatively add a `POST /reload-config` endpoint to `api/main.py` that calls `load_dotenv(override=True)` and have the sidebar save button call it after writing to `.env`. Either approach eliminates the need to restart the pipeline server after switching providers. One approach touches `base_agent.py` only; the other touches `api/main.py` and `ui/provider_config.py`.
 - Make Gemini model names configurable via environment variables — replace the hardcoded `gemini-2.5-flash` in `analyst.py`, `writer.py`, and `critic.py` with `os.environ.get("GEMINI_MODEL_QUALITY", "gemini-2.5-flash")`, and the hardcoded `gemini-2.0-flash-lite` in `planner.py`, `researcher.py`, and `graph_builder.py` with `os.environ.get("GEMINI_MODEL_LITE", "gemini-2.0-flash-lite")`. Replace the hardcoded `4` delay in `agent_pipeline.py` with `int(os.environ.get("GEMINI_DELAY_SECONDS", "4"))`. All three variables are already documented in `.env.example`. Six one-line changes across six agent files plus one line in `agent_pipeline.py`.
 - Fix start.py --stop to kill servers by port rather than by saved PID — use netstat on Windows and lsof on Mac/Linux to find the PID currently occupying each known port (8000, 8001, 8002, 8003, 8501, 8004) and kill it directly, so --stop reliably terminates all servers regardless of whether their PIDs were saved in .server_pids.json. Keep PID-based cleanup as a fallback for any ports not found via netstat.
 - Fix silent exception swallowing in MCPClient.call_tool — add a print or logger call before returning the empty list so failures are distinguishable from genuine empty results. One line change in mcp_client.py.
@@ -516,14 +610,15 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - Extend the multi-query approach to DuckDuckGo and arXiv MCP calls; run one search per planner sub-task and merge results before chunking into ChromaDB. Deduplication by source URL already exists in the web search server so merging is straightforward.
 - Make the relevance score threshold configurable via environment variable.
 - Add an optional low-temperature Ollama call in researcher.py before retrieval that rephrases the research question into three to five alternative queries; union these with the planner sub-tasks and use the combined set for both ChromaDB and web search retrieval. Gate behind an environment variable so it can be toggled off. Add after multi-query retrieval is confirmed working since it builds on the same multi-query path.
-- Add a download button in the Streamlit UI to save the final report as a markdown file.
+- Add a built-in recurring trigger to the subscription scheduler — replace the manual `python scripts/run_subscriptions.py` invocation with an APScheduler `BackgroundScheduler` that starts automatically when the FastAPI app launches, running `run_due_subscriptions()` on a configurable interval (default every 6 hours, set via `SCHEDULER_INTERVAL_HOURS` in `.env`). Add the scheduler startup to the FastAPI `lifespan` context manager in `api/main.py` so it starts and stops cleanly with the server. Add `SCHEDULER_INTERVAL_HOURS=6` to `.env.example`. Changes confined to `api/main.py` and `src/scheduler/scheduler.py` with no changes to the subscription store or delivery logic.
+- Add a per-subscription LLM provider field to the subscription store — extend the subscription schema with an optional `llm_provider` field (`"ollama"` or `"gemini"`) stored in `subscriptions.json`. Before running the pipeline for a subscription, temporarily set `os.environ["LLM_PROVIDER"]` to the subscription's provider value and restore it after the run, so each subscription can use a different provider independently of the global `.env` setting. Changes confined to `subscription_store.py`, `scheduler.py`, and the `/subscriptions` POST endpoint schema in `api/main.py`.
+- Expose the per-subscription LLM provider field in the Streamlit subscriptions UI — once the `llm_provider` field is added to the subscription schema, add a provider selector (Ollama/Gemini) to the subscription creation form in the sidebar so users can choose per-subscription which provider generates the report. Display the stored provider alongside the other subscription details in the subscription card view. One additional field in the form and one additional column in the card display, both reading from and writing to the existing `/subscriptions` POST endpoint. Depends on the per-subscription LLM provider backend change being implemented first.
 - Reframe the LoRA fine-tuning section as a standalone experimental track rather than a pipeline component — move it to a separate FINETUNING.md, add a note at the top clarifying it demonstrates the fine-tuning workflow rather than providing a production-quality writer, remove the LoRA writer from the stack table to avoid implying parity with other components, and retain the evaluation table since it honestly illustrates the impact of model scale and training data size. No code changes required.
 
 ### Bigger Changes
 
 
-- Provider switching from the Streamlit UI — add a sidebar selector in `streamlit_app.py` letting the user choose between Ollama and Gemini before running the pipeline, and a save button that writes the chosen `LLM_PROVIDER` (and optionally `GEMINI_API_KEY`) back to `.env` using `python-dotenv`'s `set_key` function. On load, read the current value from `.env` via `dotenv_values()` and pre-select the active provider so the UI reflects the real state. If Gemini is selected and no key is stored, show a password input for the key and validate it with a test call to the Gemini API before saving. Changes confined to `ui/streamlit_app.py` and a new `ui/provider_config.py` helper that wraps `dotenv.set_key` and the validation call, keeping the UI code clean. No pipeline or agent changes required.
-- Research topic subscriptions — allow users to subscribe to one or more topics and receive a freshly generated report on a configurable schedule (default weekly). Store subscriptions in a lightweight JSON file or SQLite table with fields for topic, frequency, last run timestamp, and delivery method. Add a scheduler using APScheduler or a cron job that runs the full pipeline on each subscribed topic at the configured interval, passing `submitted_after` to the arXiv MCP server so only papers newer than the last run are retrieved rather than re-fetching the full history. Deliver the report via email (SMTP) or a webhook (Slack, Discord) configurable per subscription. Expose subscription management (add, list, pause, delete) via the existing FastAPI layer with new `/subscriptions` endpoints, and add a subscriptions panel to the Streamlit UI. The vector memory means each weekly run builds on prior context automatically — the analyst will have progressively richer past chunks to retrieve from across successive runs on the same topic. Implement in a new `src/scheduler/` module with `scheduler.py`, `subscription_store.py`, and `delivery.py` keeping scheduling logic fully decoupled from the pipeline.
+- Subscription management in the Streamlit UI — add a subscriptions panel to the sidebar in `streamlit_app.py` below the provider selector. On load, call `GET /subscriptions` and display each subscription as a card showing topic, frequency, delivery method, last run timestamp and status (active/paused). Add a form to create a new subscription with fields for topic, frequency (daily/weekly/monthly), delivery method (log/email/slack/discord) and delivery target. Add pause, resume and delete buttons per subscription that call the corresponding API endpoints. Add a Run Now button that calls `POST /subscriptions/run` to trigger the scheduler manually and shows a spinner while it runs. Keep all subscription API calls going through the existing FastAPI layer rather than calling `subscription_store.py` directly from the UI, so the UI remains decoupled from the storage layer. Changes confined to `ui/streamlit_app.py` with no backend changes required since all endpoints already exist.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
 - Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.
@@ -553,7 +648,6 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 - Secrets manager integration — replace `GEMINI_API_KEY` in `.env` with a runtime fetch from a secrets manager (AWS Secrets Manager, GCP Secret Manager, or HashiCorp Vault) for production deployments. Add a `src/config/secrets.py` helper that calls the relevant SDK on startup and falls back to `os.environ` for local development, so `.env` continues to work unchanged for contributors running locally. The rest of the codebase reads the key through `secrets.py` rather than `os.environ.get` directly, meaning the switch from local to production requires no code changes beyond setting the secrets manager backend via an environment variable. Vault or AWS Secrets Manager would be the most common choices for a self-hosted or AWS-deployed version of this stack respectively.
 - Gemini quota tracker — build a lightweight daily usage tracker in `src/config/gemini_quota.py` that records request counts per model in a local JSON file (e.g. `gemini_quota.json`), resets automatically when the date changes, and exposes a `remaining(model)` function returning how many requests are left against the free tier limit for that model. Surface the per-model counts in the Streamlit sidebar so the user can see remaining capacity before running the pipeline. No external dependencies required beyond the standard library — the tracker reads and writes a single JSON file on each API call via a thin wrapper around `_call_gemini` in `base_agent.py`.
 - Gemini model fallback orchestration — before each Gemini agent call, check `gemini_quota.remaining(model)` and if the remaining count would not cover the full pipeline run, automatically promote to the next available model (e.g. gemini-2.5-flash → gemini-2.0-flash-lite → gemini-2.0-flash) by updating `self.gemini_model` at call time rather than at init. If all tracked models are exhausted for the day, fall back to Ollama automatically and print a clear message: "All Gemini model daily limits reached — falling back to Ollama". Implement in `base_agent._call_gemini` with a priority list of fallback models defined in `.env.example` as `GEMINI_FALLBACK_MODELS=gemini-2.5-flash,gemini-2.0-flash-lite,gemini-2.0-flash`. Depends on the quota tracker above being implemented first.
-
 - Prompt injection detection — add input sanitisation in the researcher and analyst that detects and rejects retrieved content containing instruction-like patterns before prompt injection.
 - PII detection and filtering — add a pre-storage filter in the MCP vector store server that detects and redacts personally identifiable information before chunks are written to ChromaDB.
 - Multilingual support — detect document language before chunking, translate non-English content before embedding to improve retrieval quality across languages.
