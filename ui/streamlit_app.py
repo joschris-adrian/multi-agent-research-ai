@@ -52,10 +52,10 @@ with st.sidebar:
                     valid, error = validate_gemini_key(key_to_save)
                 if valid:
                     save_provider_config("gemini", key_to_save)
-                    st.success("Saved. Takes effect on the next pipeline run.")
+                    st.success("Saved. Takes effect immediately on the next query.")
                 else:
                     save_provider_config("ollama")
-                    st.success("Saved. Takes effect on the next pipeline run.")
+                    st.success("Saved. Takes effect immediately on the next query.")
         else:
             save_provider_config("ollama")
 

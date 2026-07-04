@@ -3,15 +3,27 @@ import time
 import requests
 import httpx
 from ..mcp.client.mcp_client import MCPClient
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
+
 load_dotenv()
+
+ENV_PATH = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+
+
+def live_env(key, default=""):
+    """Read a value from os.environ (patchable in tests), falling back to .env file on disk."""
+    return os.environ.get(key, dotenv_values(ENV_PATH).get(key, default))
+
+
 def _get_env(key, default=""):
     return os.environ.get(key, default)
+
 
 OLLAMA_HOST = _get_env("OLLAMA_HOST", "http://localhost:11434")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
 
 class BaseAgent:
     def __init__(self, role, goal, model="llama3.2", gemini_model="gemini-2.5-flash", temperature=0.7, max_tokens=500):
@@ -34,12 +46,12 @@ Guidelines:
 - If information is unavailable or unclear, say so rather than guessing"""
 
     def run(self, prompt):
-        if os.environ.get("LLM_PROVIDER", "ollama").lower() == "gemini":
+        if live_env("LLM_PROVIDER", "ollama").lower() == "gemini":
             return self._call_gemini(prompt)
         return self._call_ollama(prompt)
 
     def _call_ollama(self, prompt):
-        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        ollama_host = live_env("OLLAMA_HOST", "http://localhost:11434")
         response = requests.post(
             f"{ollama_host}/api/generate",
             json={
@@ -60,7 +72,7 @@ Guidelines:
         return data["response"]
 
     def _call_gemini(self, prompt):
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = live_env("GEMINI_API_KEY", "")
         if not api_key:
             raise RuntimeError(
                 "GEMINI_API_KEY is not set. "
