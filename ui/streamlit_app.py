@@ -65,6 +65,98 @@ with st.sidebar:
         remaining_note = "20 requests/day free tier (gemini-2.5-flash)"
         st.caption(remaining_note)
 
+    # ---------------------------------------------------------------------------
+    # Sidebar — Subscription management
+    # ---------------------------------------------------------------------------
+    st.divider()
+    st.header("Subscriptions")
+
+    # Fetch current subscriptions
+    try:
+        subs_resp = requests.get(f"{API_URL}/subscriptions", timeout=5)
+        current_subs = subs_resp.json() if subs_resp.status_code == 200 else []
+    except Exception:
+        current_subs = []
+        st.caption("⚠️ Could not reach API to load subscriptions.")
+
+    # Run Now button
+    if st.button("▶ Run Scheduler Now", use_container_width=True, type="primary"):
+        with st.spinner("Triggering scheduler..."):
+            try:
+                requests.post(f"{API_URL}/subscriptions/run", timeout=10)
+                st.success("Scheduler triggered!")
+            except Exception as e:
+                st.error(f"Failed to trigger: {e}")
+
+    # Create new subscription form
+    with st.expander("➕ Create New Subscription", expanded=False):
+        with st.form("new_sub_form"):
+            new_topic = st.text_input("Topic", placeholder="e.g. AI agents")
+            new_freq = st.selectbox("Frequency", ["daily", "weekly", "monthly"])
+            new_method = st.selectbox("Delivery Method", ["log", "email", "slack", "discord"])
+            new_target = st.text_input("Delivery Target", placeholder="email or webhook URL (not needed for 'log')")
+            submitted = st.form_submit_button("Create Subscription")
+            
+            if submitted:
+                if not new_topic.strip():
+                    st.error("Topic is required.")
+                elif new_method != "log" and not new_target.strip():
+                    st.error("Delivery target is required for this method.")
+                else:
+                    try:
+                        resp = requests.post(f"{API_URL}/subscriptions", json={
+                            "topic": new_topic,
+                            "frequency": new_freq,
+                            "delivery_method": new_method,
+                            "delivery_target": new_target
+                        }, timeout=5)
+                        if resp.status_code == 200:
+                            st.success("Subscription created!")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to create: {resp.text}")
+                    except Exception as e:
+                        st.error(f"Failed to connect to API: {e}")
+
+    # Display existing subscriptions
+    if not current_subs:
+        st.info("No subscriptions yet.")
+    else:
+        for sub in current_subs:
+            status_text = "Paused" if sub.get("paused") else "Active"
+            last_run_text = sub.get("last_run") or "Never"
+            icon = "⏸️" if sub.get("paused") else "✅"
+            
+            with st.expander(f"{icon} {sub.get('topic', 'No topic')} ({status_text})"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Frequency:** {sub.get('frequency', '?').capitalize()}")
+                    st.write(f"**Method:** {sub.get('delivery_method', '?').capitalize()}")
+                with col2:
+                    st.write(f"**Last Run:** {last_run_text}")
+                    if sub.get("delivery_target"):
+                        st.write(f"**Target:** `{sub.get('delivery_target')}`")
+                
+                bcol1, bcol2 = st.columns(2)
+                with bcol1:
+                    # Toggle Pause/Resume
+                    btn_label = "▶ Resume" if sub.get("paused") else "⏸ Pause"
+                    if st.button(btn_label, key=f"toggle_{sub['id']}"):
+                        endpoint = "resume" if sub.get("paused") else "pause"
+                        try:
+                            requests.post(f"{API_URL}/subscriptions/{sub['id']}/{endpoint}", timeout=5)
+                            st.rerun()
+                        except Exception:
+                            st.error("API unavailable")
+                
+                with bcol2:
+                    if st.button("🗑 Delete", key=f"del_{sub['id']}"):
+                        try:
+                            requests.delete(f"{API_URL}/subscriptions/{sub['id']}", timeout=5)
+                            st.rerun()
+                        except Exception:
+                            st.error("API unavailable")
+
 st.title("Multi-Agent Research Assistant")
 st.caption("Six AI agents collaborate to research your question, retrieve academic papers, build a knowledge graph and write a structured report.")
 

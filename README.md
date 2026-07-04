@@ -118,7 +118,7 @@ multi-agent-research-ai/
 ├── api/
 │   └── main.py                 # FastAPI + GraphQL router
 ├── ui/
-│   └── streamlit_app.py        # Calls the API, renders results
+│   └── streamlit_app.py        # Calls the API, renders results, manages subscriptions
 └── tests/
     ├── test_agents.py
     ├── test_api.py
@@ -349,6 +349,8 @@ python scripts/run_subscriptions.py
 ```
 
 The report will be printed to stdout. Switch `delivery_method` to `"email"`, `"slack"`, or `"discord"` and set the appropriate credentials in `.env` when ready to use live delivery.
+
+Subscriptions can also be created, paused, resumed, deleted, and triggered directly from the Streamlit UI sidebar under the "Subscriptions" header. The UI calls the same API endpoints listed above.
 
 ### Email delivery setup (Gmail)
 
@@ -617,7 +619,6 @@ The `/research` non-streaming endpoint remains available for direct API use and 
 ### Bigger Changes
 
 
-- Subscription management in the Streamlit UI — add a subscriptions panel to the sidebar in `streamlit_app.py` below the provider selector. On load, call `GET /subscriptions` and display each subscription as a card showing topic, frequency, delivery method, last run timestamp and status (active/paused). Add a form to create a new subscription with fields for topic, frequency (daily/weekly/monthly), delivery method (log/email/slack/discord) and delivery target. Add pause, resume and delete buttons per subscription that call the corresponding API endpoints. Add a Run Now button that calls `POST /subscriptions/run` to trigger the scheduler manually and shows a spinner while it runs. Keep all subscription API calls going through the existing FastAPI layer rather than calling `subscription_store.py` directly from the UI, so the UI remains decoupled from the storage layer. Changes confined to `ui/streamlit_app.py` with no backend changes required since all endpoints already exist.
 - Source citations in report — thread source URLs from retrieved chunks through the pipeline to the writer, adding a References section to the report so every claim is traceable to a specific web page or arXiv paper.
 - Supercharge mode in Streamlit UI — add a sidebar panel showing the current state of the vector database (total chunks stored, topics covered, latest ingestion timestamp) with a button to run supercharge on any topic directly from the UI before triggering the main pipeline, so users can pre-populate memory without leaving the interface.
 - Latency optimisation — run web search and arXiv calls in parallel using asyncio rather than sequentially, and cache frequent ChromaDB queries with a short TTL.
